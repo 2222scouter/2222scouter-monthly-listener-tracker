@@ -8,7 +8,6 @@ import plotly.express as px
 
 # ============= YOUR ARTISTS (your 3 URLs added) ==============
 ARTISTS = [
-    {"name": "King Princess", "url": "https://open.spotify.com/artist/4TZieE5978SbTInJswaay2"},
     {"name": "King Kylie",    "url": "https://open.spotify.com/artist/16PVIKGOsSoCCAIBANjgil"},
     {"name": "Grace Ives",    "url": "https://open.spotify.com/artist/3HKbW1X4Aj2RZU6ruh3a0e"},
     # Add more lines here for additional artists if you want (up to 10+ is fine)
