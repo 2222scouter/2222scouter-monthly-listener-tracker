@@ -6,7 +6,6 @@ import requests
 import os
 import plotly.express as px
 
-# Load artists from sheet
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSa5tdG_4WSMrmGcaJhOZBwC_6oyXVSbpLjdrf8hfgRB_rHwm49rohMiE6ZATi42ScZDo5d1_fAW_Sw/pub?gid=0&single=true&output=csv"
 
 try:
@@ -48,7 +47,6 @@ def send_telegram(msg):
 
 timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-# Load history
 try:
     df_hist = pd.read_csv("spotify_listeners_history.csv").set_index('artist')
 except FileNotFoundError:
@@ -72,7 +70,7 @@ for a in ARTISTS:
         df_hist.at[artist, 'listeners_2days_ago'] = old.get('listeners_1day_ago')
         df_hist.at[artist, 'listeners_1day_ago'] = old.get('monthly_listeners')
 
-        # Gains (safe scalar access)
+        # Gains
         l1 = old.get('listeners_1day_ago')
         l2 = old.get('listeners_2days_ago')
         l3 = old.get('listeners_3days_ago')
@@ -109,14 +107,13 @@ for a in ARTISTS:
 
     # Alerts
     old_count = df_hist.at[artist, 'monthly_listeners'] if artist in df_hist.index else None
-    if old_count and old_count > 0:
+    if pd.notnull(old_count) and old_count > 0:
         pct_change = abs((count - old_count) / old_count * 100)
         abs_change = abs(count - old_count)
         if pct_change > CHANGE_THRESHOLD_PERCENT or abs_change > CHANGE_THRESHOLD_ABSOLUTE:
             delta = count - old_count
             send_telegram(f"🚨 <b>Big change!</b>\n<b>{artist}</b>: {old_count:,} → {count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}")
 
-# Save
 df_hist.reset_index().to_csv("spotify_listeners_history.csv", index=False)
 
 # Dashboard
