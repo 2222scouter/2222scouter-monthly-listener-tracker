@@ -84,10 +84,13 @@ if new_data:
         print(f"Error reading old CSV: {e}")
         df = df_new
 
-    # Calculate gains for new rows
+    # Calculate gains and percentages
     df['change_since_yesterday'] = ""
+    df['pct_since_yesterday'] = ""
     df['change_past_2_days'] = ""
+    df['pct_past_2_days'] = ""
     df['change_past_3_days'] = ""
+    df['pct_past_3_days'] = ""
 
     if has_old_data:
         df = df.sort_values(['artist', 'timestamp_dt'])
@@ -98,26 +101,35 @@ if new_data:
                 current_count = artist_df.iloc[i]['monthly_listeners']
                 current_time = artist_df.iloc[i]['timestamp_dt']
 
-                # Change since yesterday (~24h ago)
+                # Since yesterday (~24h ago)
                 yesterday = current_time - timedelta(days=1)
                 prev_yesterday = artist_df[artist_df['timestamp_dt'] <= yesterday]
                 if not prev_yesterday.empty:
                     closest = prev_yesterday.iloc[-1]
-                    df.at[idx, 'change_since_yesterday'] = current_count - closest['monthly_listeners']
+                    delta = current_count - closest['monthly_listeners']
+                    pct = (delta / closest['monthly_listeners'] * 100) if closest['monthly_listeners'] > 0 else 0
+                    df.at[idx, 'change_since_yesterday'] = delta
+                    df.at[idx, 'pct_since_yesterday'] = round(pct, 1)
 
-                # Change past 2 days (~48h ago)
+                # Past 2 days (~48h ago)
                 two_days_ago = current_time - timedelta(days=2)
                 prev_2days = artist_df[artist_df['timestamp_dt'] <= two_days_ago]
                 if not prev_2days.empty:
                     closest = prev_2days.iloc[-1]
-                    df.at[idx, 'change_past_2_days'] = current_count - closest['monthly_listeners']
+                    delta = current_count - closest['monthly_listeners']
+                    pct = (delta / closest['monthly_listeners'] * 100) if closest['monthly_listeners'] > 0 else 0
+                    df.at[idx, 'change_past_2_days'] = delta
+                    df.at[idx, 'pct_past_2_days'] = round(pct, 1)
 
-                # Change past 3 days (~72h ago)
+                # Past 3 days (~72h ago)
                 three_days_ago = current_time - timedelta(days=3)
                 prev_3days = artist_df[artist_df['timestamp_dt'] <= three_days_ago]
                 if not prev_3days.empty:
                     closest = prev_3days.iloc[-1]
-                    df.at[idx, 'change_past_3_days'] = current_count - closest['monthly_listeners']
+                    delta = current_count - closest['monthly_listeners']
+                    pct = (delta / closest['monthly_listeners'] * 100) if closest['monthly_listeners'] > 0 else 0
+                    df.at[idx, 'change_past_3_days'] = delta
+                    df.at[idx, 'pct_past_3_days'] = round(pct, 1)
 
     # Save CSV without temp column
     df_save = df.drop(columns=['timestamp_dt'], errors='ignore')
