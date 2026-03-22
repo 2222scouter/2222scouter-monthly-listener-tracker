@@ -1,86 +1,111 @@
-name: 2222scouter Monthly Listener Tracker
+from datetime import datetime
+import re
+import pandas as pd
+from playwright.sync_api import sync_playwright
+import requests
+import os
+import plotly.express as px
+from datetime import timezone  # For fixing deprecation
 
-on:
-  push:
-    branches: [ main ]          # Temporary trigger to make workflow visible — remove later if desired
-  schedule:
-    - cron: '*/10 20 * * *'     # 3:00–3:50 PM EST
-    - cron: '0 21 * * *'        # 4:00 PM EST
-  workflow_dispatch:            # Manual run button
+# ============== AUTO-LOAD ARTISTS FROM YOUR GOOGLE SHEET ==============
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSa5tdG_4WSMrmGcaJhOZBwC_6oyXVSbpLjdrf8hfgRB_rHwm49rohMiE6ZATi42ScZDo5d1_fAW_Sw/pub?gid=0&single=true&output=csv"
 
-jobs:
-  scrape:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+try:
+    artists_df = pd.read_csv(SHEET_CSV_URL)
+    name_col = next((col for col in artists_df.columns if 'artist' in col.lower() or 'name' in col.lower()), artists_df.columns[0])
+    url_col = next((col for col in artists_df.columns if 'url' in col.lower() or 'spotify' in col.lower()), artists_df.columns[1])
+    
+    ARTISTS = [
+        {"name": str(row[name_col]).strip(), "url": str(row[url_col]).strip()}
+        for _, row in artists_df.iterrows()
+        if pd.notna(row[name_col]) and pd.notna(row[url_col]) and 'open.spotify.com/artist' in str(row[url_col])
+    ]
+    print(f"Loaded {len(ARTISTS)} artists from Google Sheet: {', '.join(a['name'] for a in ARTISTS)}")
+except Exception as e:
+    print(f"Error loading sheet: {e}. Using fallback artists.")
+    ARTISTS = [
+        {"name": "Grace Ives", "url": "https://open.spotify.com/artist/4TZieE5978SbTInJswaay2"},
+        {"name": "King Kylie", "url": "https://open.spotify.com/artist/16PVIKGOsSoCCAIBANjgil"},
+    ]
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
+CHANGE_THRESHOLD_PERCENT = 5.0
+CHANGE_THRESHOLD_ABSOLUTE = 15000
+# =====================================================================
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y \
-            ca-certificates \
-            fonts-liberation \
-            libasound2t64 \
-            libatk-bridge2.0-0 \
-            libatk1.0-0 \
-            libc6 \
-            libcairo2 \
-            libcups2 \
-            libdbus-1-3 \
-            libexpat1 \
-            libfontconfig1 \
-            libgbm1 \
-            libgcc-s1 \
-            libglib2.0-0 \
-            libgtk-3-0 \
-            libnspr4 \
-            libnss3 \
-            libpango-1.0-0 \
-            libpangocairo-1.0-0 \
-            libstdc++6 \
-            libx11-6 \
-            libx11-xcb1 \
-            libxcb1 \
-            libxcomposite1 \
-            libxcursor1 \
-            libxdamage1 \
-            libxext6 \
-            libxfixes3 \
-            libxi6 \
-            libxrandr2 \
-            libxrender1 \
-            libxss1 \
-            libxtst6 \
-            lsb-release \
-            wget \
-            xdg-utils
+def get_monthly_listeners(url):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, wait_until="networkidle", timeout=60000)
+        page.wait_for_timeout(5000)
+        elem = page.get_by_text(re.compile("monthly listeners", re.IGNORECASE)).first
+        text = elem.inner_text().strip() if elem else ""
+        match = re.search(r'([\d,]+)', text)
+        browser.close()
+        return int(match.group(1).replace(',', '')) if match else None
 
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install playwright pandas requests plotly
+def send_telegram(message):
+    token = os.getenv('TELEGRAM_BOT_TOKEN')
+    chat_id = os.getenv('TELEGRAM_CHAT_ID')
+    if token and chat_id:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"})
+        print("📨 Telegram alert sent!")
 
-      - name: Install Playwright browsers
-        run: |
-          playwright install-deps
-          playwright install chromium --with-deps
+# Fixed deprecation warning: use timezone-aware UTC
+timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-      - name: Run scraper
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python spotify_listeners_tracker.py
+new_data = []
+for artist in ARTISTS:
+    try:
+        count = get_monthly_listeners(artist["url"])
+        if count is not None:
+            new_data.append({"timestamp": timestamp, "artist": artist["name"], "monthly_listeners": count})
+            print(f"✅ {artist['name']}: {count:,} at {timestamp}")
+    except Exception as e:
+        print(f"Error for {artist['name']}: {e}")
 
-      - name: Commit and push results
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add spotify_listeners_history.csv dashboard.html || true
-          git commit -m "Daily listener update $(date +'%Y-%m-%d %H:%M UTC')" || echo "No changes to commit"
-          git push || echo "Push not needed"
+if new_data:
+    df_new = pd.DataFrame(new_data)
+    
+    has_old_data = False
+    df_old = None  # Explicitly define it to avoid NameError
+    
+    try:
+        df_old = pd.read_csv("spotify_listeners_history.csv")
+        df = pd.concat([df_old, df_new], ignore_index=True)
+        df = df.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
+        has_old_data = True
+    except FileNotFoundError:
+        df = df_new
+        print("First run — no history yet, skipping alerts")
+    except Exception as e:
+        print(f"Error reading old CSV: {e}")
+        df = df_new
+
+    df.to_csv("spotify_listeners_history.csv", index=False)
+
+    # Alerts only if we have old data
+    if has_old_data and df_old is not None:
+        for row in df_new.itertuples():
+            artist_name = row.artist
+            new_count = row.monthly_listeners
+            prev = df_old[df_old['artist'] == artist_name]
+            if not prev.empty:
+                last_count = prev.iloc[-1]['monthly_listeners']
+                if last_count > 0:
+                    pct_change = abs((new_count - last_count) / last_count * 100)
+                    abs_change = abs(new_count - last_count)
+                    if pct_change > CHANGE_THRESHOLD_PERCENT or abs_change > CHANGE_THRESHOLD_ABSOLUTE:
+                        delta = new_count - last_count
+                        msg = f"🚨 <b>Big listener change!</b>\n\n<b>{artist_name}</b>: {last_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}"
+                        send_telegram(msg)
+
+    # Dashboard
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    fig = px.line(df, x='timestamp', y='monthly_listeners', color='artist',
+                  markers=True, title='2222scouter Monthly Listener Tracker',
+                  labels={'timestamp': 'Date & Time', 'monthly_listeners': 'Monthly Listeners'})
+    fig.update_layout(hovermode='x unified', legend_title='Artist')
+    fig.write_html('dashboard.html')
+    print("📈 Dashboard updated!")
