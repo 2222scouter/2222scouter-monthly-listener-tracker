@@ -16,12 +16,12 @@ try:
                for _, r in df_artists.iterrows() 
                if 'open.spotify.com/artist' in str(r[url_col])]
     print(f"Loaded {len(ARTISTS)} artists")
-except:
+except Exception as e:
+    print(f"Sheet load failed: {e}. Using fallback.")
     ARTISTS = [
         {"name": "Grace Ives", "url": "https://open.spotify.com/artist/4TZieE5978SbTInJswaay2"},
         {"name": "King Kylie", "url": "https://open.spotify.com/artist/16PVIKGOsSoCCAIBANjgil"},
     ]
-    print("Sheet load failed, using fallback")
 
 CHANGE_THRESHOLD_PERCENT = 5.0
 CHANGE_THRESHOLD_ABSOLUTE = 15000
@@ -65,29 +65,29 @@ for a in ARTISTS:
     if artist in df_hist.index:
         old = df_hist.loc[artist]
 
-        # Shift history
+        # Shift history safely
         df_hist.at[artist, 'listeners_3days_ago'] = old.get('listeners_2days_ago')
         df_hist.at[artist, 'listeners_2days_ago'] = old.get('listeners_1day_ago')
         df_hist.at[artist, 'listeners_1day_ago'] = old.get('monthly_listeners')
 
-        # Gains
+        # Gains - safe scalar extraction
         l1 = old.get('listeners_1day_ago')
         l2 = old.get('listeners_2days_ago')
         l3 = old.get('listeners_3days_ago')
 
-        if pd.notnull(l1) and l1 > 0:
+        if pd.notna(l1) and l1 > 0:
             delta = count - l1
             pct = round(delta / l1 * 100, 1)
             df_hist.at[artist, 'change_since_yesterday'] = delta
             df_hist.at[artist, 'pct_since_yesterday'] = pct
 
-        if pd.notnull(l1) and pd.notnull(l2) and l2 > 0:
+        if pd.notna(l1) and pd.notna(l2) and l2 > 0:
             delta = l1 - l2
             pct = round(delta / l2 * 100, 1)
             df_hist.at[artist, 'change_day1_to_day2'] = delta
             df_hist.at[artist, 'pct_day1_to_day2'] = pct
 
-        if pd.notnull(l2) and pd.notnull(l3) and l3 > 0:
+        if pd.notna(l2) and pd.notna(l3) and l3 > 0:
             delta = l2 - l3
             pct = round(delta / l3 * 100, 1)
             df_hist.at[artist, 'change_day2_to_day3'] = delta
@@ -105,13 +105,12 @@ for a in ARTISTS:
             'change_day2_to_day3': [None], 'pct_day2_to_day3': [None]
         }, index=[artist])])
 
-    # Alerts - FINAL SAFE VERSION
+    # Alerts - safe scalar
     if artist in df_hist.index:
         old_count_series = df_hist.at[artist, 'monthly_listeners']
         if pd.isna(old_count_series).any():
             continue
-        old_count = old_count_series.iloc[0] if isinstance(old_count_series, pd.Series) else old_count_series
-        old_count = float(old_count)
+        old_count = old_count_series.item() if isinstance(old_count_series, pd.Series) else float(old_count_series)
         if old_count <= 0:
             continue
         pct_change = abs((count - old_count) / old_count * 100)
