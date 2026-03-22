@@ -2,8 +2,8 @@ name: 2222scouter Monthly Listener Tracker
 
 on:
   schedule:
-    - cron: '0 * * * *'   # Every hour, on the hour (UTC)
-  workflow_dispatch:      # Still allows manual run
+    - cron: '0 15 * * *'      # Once per day at 3:00 PM UTC (15:00 UTC)
+  workflow_dispatch:          # Still allows manual runs from the Actions tab
 
 jobs:
   scrape:
@@ -50,5 +50,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add spotify_listeners_history.csv dashboard.html || true
-          git commit -m "Hourly listener update $(date +'%Y-%m-%d %H:%M UTC')" || echo "No changes"
+          git commit -m "Daily listener update $(date +'%Y-%m-%d %H:%M UTC')" || echo "No changes"
           git push || echo "No push needed"
