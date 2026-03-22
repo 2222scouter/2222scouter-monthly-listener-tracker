@@ -1,5 +1,7 @@
-timestamp,artist,monthly_listeners,change_since_yesterday,change_past_2_days,change_past_3_days
-2026-03-22 11:28 UTC,Grace Ives,618939,,,
-2026-03-22 11:40 UTC,Grace Ives,618939,,,
-2026-03-22 11:28 UTC,King Kylie,541967,,,
-2026-03-22 11:40 UTC,King Kylie,541967,,,
+timestamp,artist,monthly_listeners,change_since_yesterday,change_past_2_days,change_past_3_days,pct_since_yesterday,pct_past_2_days,pct_past_3_days
+2026-03-22 11:28 UTC,Grace Ives,618939,,,,,,
+2026-03-22 11:40 UTC,Grace Ives,618939,,,,,,
+2026-03-22 11:42 UTC,Grace Ives,618939,,,,,,
+2026-03-22 11:28 UTC,King Kylie,541967,,,,,,
+2026-03-22 11:40 UTC,King Kylie,541967,,,,,,
+2026-03-22 11:42 UTC,King Kylie,541967,,,,,,
