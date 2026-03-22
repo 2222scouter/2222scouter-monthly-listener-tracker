@@ -47,14 +47,22 @@ def send_telegram(msg):
 
 timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+# Load history (one row per artist)
 try:
-    df_hist = pd.read_csv("spotify_listeners_history.csv").set_index('artist')
+    df_hist = pd.read_csv("spotify_listeners_history.csv")
+    # Fix 'index' → 'artist' if needed
+    if 'index' in df_hist.columns:
+        df_hist = df_hist.rename(columns={'index': 'artist'})
+    if 'artist' not in df_hist.columns:
+        df_hist['artist'] = ""  # Fallback (shouldn't happen)
+    df_hist.set_index('artist', inplace=True)
 except FileNotFoundError:
     df_hist = pd.DataFrame(columns=['artist', 'timestamp', 'monthly_listeners',
                                     'listeners_1day_ago', 'listeners_2days_ago', 'listeners_3days_ago',
                                     'change_since_yesterday', 'pct_since_yesterday',
                                     'change_day1_to_day2', 'pct_day1_to_day2',
                                     'change_day2_to_day3', 'pct_day2_to_day3'])
+    df_hist.set_index('artist', inplace=True)
 
 for a in ARTISTS:
     count = get_monthly_listeners(a["url"])
@@ -65,12 +73,12 @@ for a in ARTISTS:
     if artist in df_hist.index:
         old = df_hist.loc[artist]
 
-        # Shift history
+        # Shift history safely
         df_hist.at[artist, 'listeners_3days_ago'] = old.get('listeners_2days_ago').iloc[0] if isinstance(old.get('listeners_2days_ago'), pd.Series) else old.get('listeners_2days_ago')
         df_hist.at[artist, 'listeners_2days_ago'] = old.get('listeners_1day_ago').iloc[0] if isinstance(old.get('listeners_1day_ago'), pd.Series) else old.get('listeners_1day_ago')
         df_hist.at[artist, 'listeners_1day_ago'] = old.get('monthly_listeners').iloc[0] if isinstance(old.get('monthly_listeners'), pd.Series) else old.get('monthly_listeners')
 
-        # Gains
+        # Gains - safe scalar
         l1 = old.get('listeners_1day_ago')
         l1 = l1.iloc[0] if isinstance(l1, pd.Series) else l1
         l1 = float(l1) if pd.notna(l1) else None
@@ -113,7 +121,7 @@ for a in ARTISTS:
             'change_day2_to_day3': [None], 'pct_day2_to_day3': [None]
         }, index=[artist])])
 
-    # Alerts - safe scalar
+    # Alerts
     if artist in df_hist.index:
         old_count_series = df_hist.at[artist, 'monthly_listeners']
         if isinstance(old_count_series, pd.Series):
@@ -134,11 +142,14 @@ for a in ARTISTS:
             delta = count - old_count
             send_telegram(f"🚨 <b>Big change!</b>\n<b>{artist}</b>: {old_count:,} → {count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}")
 
-df_hist.reset_index().to_csv("spotify_listeners_history.csv", index=False)
+# Save history (force 'artist' header)
+df_save = df_hist.reset_index()
+if 'index' in df_save.columns:
+    df_save = df_save.rename(columns={'index': 'artist'})
+df_save.to_csv("spotify_listeners_history.csv", index=False)
 
-# Dashboard - fixed column reference
-df_plot = df_hist.reset_index()
-df_plot = df_plot.rename(columns={'index': 'artist'})  # Ensure 'artist' is a column
+# Dashboard
+df_plot = df_save.copy()
 df_plot['timestamp'] = pd.to_datetime(df_plot['timestamp'])
 fig = px.line(df_plot, x='timestamp', y='monthly_listeners', color='artist',
               markers=True, title='2222scouter Monthly Listener Tracker')
