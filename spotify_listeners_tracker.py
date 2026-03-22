@@ -16,12 +16,12 @@ try:
                for _, r in df_artists.iterrows() 
                if 'open.spotify.com/artist' in str(r[url_col])]
     print(f"Loaded {len(ARTISTS)} artists")
-except Exception as e:
-    print(f"Sheet load failed: {e}. Using fallback.")
+except:
     ARTISTS = [
         {"name": "Grace Ives", "url": "https://open.spotify.com/artist/4TZieE5978SbTInJswaay2"},
         {"name": "King Kylie", "url": "https://open.spotify.com/artist/16PVIKGOsSoCCAIBANjgil"},
     ]
+    print("Sheet load failed, using fallback")
 
 CHANGE_THRESHOLD_PERCENT = 5.0
 CHANGE_THRESHOLD_ABSOLUTE = 15000
@@ -66,22 +66,22 @@ for a in ARTISTS:
         old = df_hist.loc[artist]
 
         # Shift history safely
-        l3 = old.get('listeners_2days_ago')
-        l3 = l3.iloc[0] if isinstance(l3, pd.Series) else l3
-        df_hist.at[artist, 'listeners_3days_ago'] = l3
-
-        l2 = old.get('listeners_1day_ago')
-        l2 = l2.iloc[0] if isinstance(l2, pd.Series) else l2
-        df_hist.at[artist, 'listeners_2days_ago'] = l2
-
-        l1 = old.get('monthly_listeners')
-        l1 = l1.iloc[0] if isinstance(l1, pd.Series) else l1
-        df_hist.at[artist, 'listeners_1day_ago'] = l1
+        df_hist.at[artist, 'listeners_3days_ago'] = old.get('listeners_2days_ago').iloc[0] if isinstance(old.get('listeners_2days_ago'), pd.Series) else old.get('listeners_2days_ago')
+        df_hist.at[artist, 'listeners_2days_ago'] = old.get('listeners_1day_ago').iloc[0] if isinstance(old.get('listeners_1day_ago'), pd.Series) else old.get('listeners_1day_ago')
+        df_hist.at[artist, 'listeners_1day_ago'] = old.get('monthly_listeners').iloc[0] if isinstance(old.get('monthly_listeners'), pd.Series) else old.get('monthly_listeners')
 
         # Gains - safe scalar
-        l1 = l1 if pd.notna(l1) else None
-        l2 = l2 if pd.notna(l2) else None
-        l3 = l3 if pd.notna(l3) else None
+        l1 = old.get('listeners_1day_ago')
+        l1 = l1.iloc[0] if isinstance(l1, pd.Series) else l1
+        l1 = float(l1) if pd.notna(l1) else None
+
+        l2 = old.get('listeners_2days_ago')
+        l2 = l2.iloc[0] if isinstance(l2, pd.Series) else l2
+        l2 = float(l2) if pd.notna(l2) else None
+
+        l3 = old.get('listeners_3days_ago')
+        l3 = l3.iloc[0] if isinstance(l3, pd.Series) else l3
+        l3 = float(l3) if pd.notna(l3) else None
 
         if l1 is not None and l1 > 0:
             delta = count - l1
@@ -113,12 +113,18 @@ for a in ARTISTS:
             'change_day2_to_day3': [None], 'pct_day2_to_day3': [None]
         }, index=[artist])])
 
-    # Alerts - safe scalar
+    # Alerts - SAFE VERSION
     if artist in df_hist.index:
         old_count_series = df_hist.at[artist, 'monthly_listeners']
-        if pd.isna(old_count_series).any():
-            continue
-        old_count = old_count_series.iloc[0] if isinstance(old_count_series, pd.Series) else old_count_series
+        if isinstance(old_count_series, pd.Series):
+            if old_count_series.isna().any():
+                continue
+            old_count = old_count_series.iloc[0]
+        else:
+            if pd.isna(old_count_series):
+                continue
+            old_count = old_count_series
+
         old_count = float(old_count) if not pd.isna(old_count) else None
         if old_count is None or old_count <= 0:
             continue
