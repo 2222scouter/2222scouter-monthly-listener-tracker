@@ -29,12 +29,7 @@ def load_data():
     try:
         df = pd.read_csv(url)
         df['timestamp'] = pd.to_datetime(df['timestamp'])
-        # Force 'artist' column
-        if 'index' in df.columns:
-            df = df.rename(columns={'index': 'artist'})
-        if 'artist' not in df.columns:
-            df['artist'] = 'Unknown Artist'  # fallback
-        # Fill missing gains with 0
+        # Replace NaN with 0 for gain columns
         gain_cols = [c for c in df.columns if 'change_' in c or 'pct_' in c]
         df[gain_cols] = df[gain_cols].fillna(0)
         return df
@@ -48,14 +43,20 @@ if df.empty:
 else:
     # Format display
     def fmt_change(x):
-        if x == 0:
+        if x == "-" or pd.isna(x) or x == "":
             return "0"
-        return f"{x:+,d}"
+        try:
+            return f"{float(x):+,d}"
+        except (ValueError, TypeError):
+            return str(x)
 
     def fmt_pct(x):
-        if x == 0:
+        if x == "-" or pd.isna(x) or x == "":
             return "-"
-        return f"{x:+.1f}%"
+        try:
+            return f"{float(x):+.1f}%"
+        except (ValueError, TypeError):
+            return str(x)
 
     display_df = df.copy()
     for col in display_df.columns:
