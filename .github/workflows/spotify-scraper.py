@@ -1,11 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import re
 import pandas as pd
 from playwright.sync_api import sync_playwright
 import requests
 import os
 import plotly.express as px
-from datetime import timezone  # For fixing deprecation
 
 # ============== AUTO-LOAD ARTISTS FROM YOUR GOOGLE SHEET ==============
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSa5tdG_4WSMrmGcaJhOZBwC_6oyXVSbpLjdrf8hfgRB_rHwm49rohMiE6ZATi42ScZDo5d1_fAW_Sw/pub?gid=0&single=true&output=csv"
@@ -50,9 +49,8 @@ def send_telegram(message):
     if token and chat_id:
         url = f"https://api.telegram.org/bot{token}/sendMessage"
         requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"})
-        print("📨 Telegram alert sent!")
+        print("Telegram alert sent!")
 
-# Fixed deprecation warning: use timezone-aware UTC
 timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 new_data = []
@@ -69,7 +67,7 @@ if new_data:
     df_new = pd.DataFrame(new_data)
     
     has_old_data = False
-    df_old = None  # Explicitly define it to avoid NameError
+    df_old = None  # Prevent NameError
     
     try:
         df_old = pd.read_csv("spotify_listeners_history.csv")
@@ -108,4 +106,4 @@ if new_data:
                   labels={'timestamp': 'Date & Time', 'monthly_listeners': 'Monthly Listeners'})
     fig.update_layout(hovermode='x unified', legend_title='Artist')
     fig.write_html('dashboard.html')
-    print("📈 Dashboard updated!")
+    print("Dashboard updated!")
