@@ -105,9 +105,14 @@ for a in ARTISTS:
             'change_day2_to_day3': [None], 'pct_day2_to_day3': [None]
         }, index=[artist])])
 
-    # Alerts
-    old_count = df_hist.at[artist, 'monthly_listeners'] if artist in df_hist.index else None
-    if pd.notnull(old_count) and old_count > 0:
+    # Alerts - SAFE VERSION
+    if artist in df_hist.index:
+        old_count_scalar = df_hist.at[artist, 'monthly_listeners']
+        if pd.isna(old_count_scalar):
+            continue
+        old_count = float(old_count_scalar)
+        if old_count <= 0:
+            continue
         pct_change = abs((count - old_count) / old_count * 100)
         abs_change = abs(count - old_count)
         if pct_change > CHANGE_THRESHOLD_PERCENT or abs_change > CHANGE_THRESHOLD_ABSOLUTE:
