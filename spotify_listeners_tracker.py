@@ -16,12 +16,12 @@ try:
                for _, r in df_artists.iterrows() 
                if 'open.spotify.com/artist' in str(r[url_col])]
     print(f"Loaded {len(ARTISTS)} artists")
-except Exception as e:
-    print(f"Sheet load failed: {e}. Using fallback.")
+except:
     ARTISTS = [
         {"name": "Grace Ives", "url": "https://open.spotify.com/artist/4TZieE5978SbTInJswaay2"},
         {"name": "King Kylie", "url": "https://open.spotify.com/artist/16PVIKGOsSoCCAIBANjgil"},
     ]
+    print("Sheet load failed, using fallback")
 
 CHANGE_THRESHOLD_PERCENT = 5.0
 CHANGE_THRESHOLD_ABSOLUTE = 15000
@@ -47,113 +47,60 @@ def send_telegram(msg):
 
 timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
-# Load or initialize clean history (one row per artist)
 try:
-    df_hist = pd.read_csv("spotify_listeners_history.csv").set_index('artist')
+    df_hist = pd.read_csv("spotify_listeners_history.csv")
 except FileNotFoundError:
-    df_hist = pd.DataFrame(columns=['artist', 'timestamp', 'monthly_listeners',
-                                    'listeners_1day_ago', 'listeners_2days_ago', 'listeners_3days_ago',
+    df_hist = pd.DataFrame(columns=['timestamp', 'artist', 'monthly_listeners',
                                     'change_since_yesterday', 'pct_since_yesterday',
                                     'change_day1_to_day2', 'pct_day1_to_day2',
                                     'change_day2_to_day3', 'pct_day2_to_day3'])
-    df_hist.set_index('artist', inplace=True)
 
 new_data = []
 for a in ARTISTS:
     count = get_monthly_listeners(a["url"])
     if count is None: continue
     print(f"✅ {a['name']}: {count:,} at {timestamp}")
-    new_data.append({"artist": a["name"], "timestamp": timestamp, "monthly_listeners": count})
+    new_data.append({"timestamp": timestamp, "artist": a["name"], "monthly_listeners": count})
 
 if new_data:
-    df_new = pd.DataFrame(new_data).set_index('artist')
+    df_new = pd.DataFrame(new_data)
+    
+    has_old_data = False
+    df_old = None
+    
+    try:
+        df_old = pd.read_csv("spotify_listeners_history.csv")
+        df = pd.concat([df_old, df_new], ignore_index=True)
+        df = df.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
+        has_old_data = True
+    except FileNotFoundError:
+        df = df_new
+        print("First run — no history yet, skipping alerts")
+    except Exception as e:
+        print(f"Error reading old CSV: {e}")
+        df = df_new
 
-    for artist, row in df_new.iterrows():
-        new_count = row['monthly_listeners']
-        if artist in df_hist.index:
-            old = df_hist.loc[artist]
+    df.to_csv("spotify_listeners_history.csv", index=False)
 
-            # Shift rolling history safely
-            df_hist.at[artist, 'listeners_3days_ago'] = old.get('listeners_2days_ago').iloc[0] if isinstance(old.get('listeners_2days_ago'), pd.Series) else old.get('listeners_2days_ago')
-            df_hist.at[artist, 'listeners_2days_ago'] = old.get('listeners_1day_ago').iloc[0] if isinstance(old.get('listeners_1day_ago'), pd.Series) else old.get('listeners_1day_ago')
-            df_hist.at[artist, 'listeners_1day_ago'] = old.get('monthly_listeners').iloc[0] if isinstance(old.get('monthly_listeners'), pd.Series) else old.get('monthly_listeners')
+    if has_old_data and df_old is not None:
+        for row in df_new.itertuples():
+            artist_name = row.artist
+            new_count = row.monthly_listeners
+            prev = df_old[df_old['artist'] == artist_name]
+            if not prev.empty:
+                last_count = prev.iloc[-1]['monthly_listeners']
+                if last_count > 0:
+                    pct_change = abs((new_count - last_count) / last_count * 100)
+                    abs_change = abs(new_count - last_count)
+                    if pct_change > CHANGE_THRESHOLD_PERCENT or abs_change > CHANGE_THRESHOLD_ABSOLUTE:
+                        delta = new_count - last_count
+                        msg = f"🚨 <b>Big listener change!</b>\n\n<b>{artist_name}</b>: {last_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}"
+                        send_telegram(msg)
 
-            # Gains - safe scalar
-            l1 = old.get('listeners_1day_ago')
-            l1 = l1.iloc[0] if isinstance(l1, pd.Series) else l1
-            l1 = float(l1) if pd.notna(l1) else None
-
-            l2 = old.get('listeners_2days_ago')
-            l2 = l2.iloc[0] if isinstance(l2, pd.Series) else l2
-            l2 = float(l2) if pd.notna(l2) else None
-
-            l3 = old.get('listeners_3days_ago')
-            l3 = l3.iloc[0] if isinstance(l3, pd.Series) else l3
-            l3 = float(l3) if pd.notna(l3) else None
-
-            if l1 is not None and l1 > 0:
-                delta = new_count - l1
-                pct = round(delta / l1 * 100, 1)
-                df_hist.at[artist, 'change_since_yesterday'] = delta
-                df_hist.at[artist, 'pct_since_yesterday'] = pct
-
-            if l1 is not None and l2 is not None and l2 > 0:
-                delta = l1 - l2
-                pct = round(delta / l2 * 100, 1)
-                df_hist.at[artist, 'change_day1_to_day2'] = delta
-                df_hist.at[artist, 'pct_day1_to_day2'] = pct
-
-            if l2 is not None and l3 is not None and l3 > 0:
-                delta = l2 - l3
-                pct = round(delta / l3 * 100, 1)
-                df_hist.at[artist, 'change_day2_to_day3'] = delta
-                df_hist.at[artist, 'pct_day2_to_day3'] = pct
-
-            # Update current
-            df_hist.at[artist, 'timestamp'] = timestamp
-            df_hist.at[artist, 'monthly_listeners'] = new_count
-        else:
-            df_hist = pd.concat([df_hist, pd.DataFrame({
-                'timestamp': [timestamp], 'monthly_listeners': [new_count],
-                'listeners_1day_ago': [None], 'listeners_2days_ago': [None], 'listeners_3days_ago': [None],
-                'change_since_yesterday': [None], 'pct_since_yesterday': [None],
-                'change_day1_to_day2': [None], 'pct_day1_to_day2': [None],
-                'change_day2_to_day3': [None], 'pct_day2_to_day3': [None]
-            }, index=[artist])])
-
-    # Save clean history
-    df_save = df_hist.reset_index()
-    if 'index' in df_save.columns:
-        df_save = df_save.rename(columns={'index': 'artist'})
-    df_save.to_csv("spotify_listeners_history.csv", index=False)
-
-    # Append to historical log (full time-series, never overwrite)
-    historical_file = "spotify_historical_log.csv"
-    df_append = pd.DataFrame(new_data)
-    if os.path.exists(historical_file):
-        df_old_hist = pd.read_csv(historical_file)
-        df_append = pd.concat([df_old_hist, df_append], ignore_index=True)
-    df_append.to_csv(historical_file, index=False)
-
-    # Alerts
-    for artist, row in df_new.iterrows():
-        if artist in df_hist.index:
-            old_count = df_hist.at[artist, 'monthly_listeners']
-            if pd.isna(old_count) or old_count <= 0:
-                continue
-            pct_change = abs((new_count - old_count) / old_count * 100)
-            abs_change = abs(new_count - old_count)
-            if pct_change > CHANGE_THRESHOLD_PERCENT or abs_change > CHANGE_THRESHOLD_ABSOLUTE:
-                delta = new_count - old_count
-                msg = f"🚨 <b>Big change!</b>\n<b>{artist}</b>: {old_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}"
-                send_telegram(msg)
-
-    # Dashboard
-    df_plot = df_hist.reset_index()
-    df_plot = df_plot.rename(columns={'index': 'artist'})
-    df_plot['timestamp'] = pd.to_datetime(df_plot['timestamp'])
-    fig = px.line(df_plot, x='timestamp', y='monthly_listeners', color='artist',
-                  markers=True, title='2222scouter Monthly Listener Tracker')
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
+    fig = px.line(df, x='timestamp', y='monthly_listeners', color='artist',
+                  markers=True, title='2222scouter Monthly Listener Tracker',
+                  labels={'timestamp': 'Date & Time', 'monthly_listeners': 'Monthly Listeners'})
     fig.update_layout(hovermode='x unified', legend_title='Artist')
     fig.write_html('dashboard.html')
     print("Dashboard updated!")
