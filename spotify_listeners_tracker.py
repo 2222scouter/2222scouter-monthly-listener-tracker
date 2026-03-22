@@ -5,7 +5,6 @@ from playwright.sync_api import sync_playwright
 import requests
 import os
 import plotly.express as px
-import plotly.graph_objects as go
 
 # ============== AUTO-LOAD ARTISTS FROM YOUR GOOGLE SHEET ==============
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSa5tdG_4WSMrmGcaJhOZBwC_6oyXVSbpLjdrf8hfgRB_rHwm49rohMiE6ZATi42ScZDo5d1_fAW_Sw/pub?gid=0&single=true&output=csv"
@@ -55,147 +54,93 @@ def send_telegram(message):
 timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 now_dt = datetime.now(timezone.utc)
 
-new_data = []
+# Load existing history (one row per artist)
+try:
+    df_history = pd.read_csv("spotify_listeners_history.csv")
+    # Make artist the index for easy update
+    df_history.set_index('artist', inplace=True)
+except FileNotFoundError:
+    df_history = pd.DataFrame(columns=[
+        'artist', 'timestamp', 'monthly_listeners',
+        'change_since_yesterday', 'pct_since_yesterday',
+        'change_past_2_days', 'pct_past_2_days',
+        'change_past_3_days', 'pct_past_3_days'
+    ])
+    df_history.set_index('artist', inplace=True)
+
+new_rows = []
 for artist in ARTISTS:
     try:
         count = get_monthly_listeners(artist["url"])
         if count is not None:
-            new_data.append({"timestamp": timestamp, "artist": artist["name"], "monthly_listeners": count})
+            new_rows.append({
+                'artist': artist["name"],
+                'timestamp': timestamp,
+                'monthly_listeners': count
+            })
             print(f"✅ {artist['name']}: {count:,} at {timestamp}")
     except Exception as e:
         print(f"Error for {artist['name']}: {e}")
 
-if new_data:
-    df_new = pd.DataFrame(new_data)
-    df_new['timestamp_dt'] = pd.to_datetime(df_new['timestamp'], utc=True)
-    
-    has_old_data = False
-    df_old = None
-    
-    try:
-        df_old = pd.read_csv("spotify_listeners_history.csv")
-        df_old['timestamp_dt'] = pd.to_datetime(df_old['timestamp'], utc=True)
-        df = pd.concat([df_old, df_new], ignore_index=True)
-        df = df.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
-        has_old_data = True
-    except FileNotFoundError:
-        df = df_new
-        print("First run — no history yet, skipping alerts")
-    except Exception as e:
-        print(f"Error reading old CSV: {e}")
-        df = df_new
+if new_rows:
+    df_new = pd.DataFrame(new_rows)
+    df_new.set_index('artist', inplace=True)
 
-    # Calculate gains (as before, but now for color-coding too)
-    df['change_since_yesterday'] = ""
-    df['pct_since_yesterday'] = ""
-    df['change_past_2_days'] = ""
-    df['pct_past_2_days'] = ""
-    df['change_past_3_days'] = ""
-    df['pct_past_3_days'] = ""
+    # Update history with new data
+    for artist, row in df_new.iterrows():
+        if artist in df_history.index:
+            old_row = df_history.loc[artist]
 
-    if has_old_data:
-        df = df.sort_values(['artist', 'timestamp_dt'])
-        for artist in df['artist'].unique():
-            artist_df = df[df['artist'] == artist].copy()
-            for i in range(1, len(artist_df)):
-                idx = artist_df.index[i]
-                current_count = artist_df.iloc[i]['monthly_listeners']
-                current_time = artist_df.iloc[i]['timestamp_dt']
+            # Calculate changes
+            delta = row['monthly_listeners'] - old_row['monthly_listeners']
+            pct = (delta / old_row['monthly_listeners'] * 100) if old_row['monthly_listeners'] > 0 else 0
 
-                # Since yesterday
-                yesterday = current_time - timedelta(days=1)
-                prev_yesterday = artist_df[artist_df['timestamp_dt'] <= yesterday]
-                if not prev_yesterday.empty:
-                    closest = prev_yesterday.iloc[-1]
-                    delta = current_count - closest['monthly_listeners']
-                    pct = (delta / closest['monthly_listeners'] * 100) if closest['monthly_listeners'] > 0 else 0
-                    df.at[idx, 'change_since_yesterday'] = delta
-                    df.at[idx, 'pct_since_yesterday'] = round(pct, 1)
+            # Update gains (since this is daily-ish, "since yesterday" is now the previous row)
+            df_history.at[artist, 'change_since_yesterday'] = delta
+            df_history.at[artist, 'pct_since_yesterday'] = round(pct, 1)
 
-                # Past 2 days
-                two_days_ago = current_time - timedelta(days=2)
-                prev_2days = artist_df[artist_df['timestamp_dt'] <= two_days_ago]
-                if not prev_2days.empty:
-                    closest = prev_2days.iloc[-1]
-                    delta = current_count - closest['monthly_listeners']
-                    pct = (delta / closest['monthly_listeners'] * 100) if closest['monthly_listeners'] > 0 else 0
-                    df.at[idx, 'change_past_2_days'] = delta
-                    df.at[idx, 'pct_past_2_days'] = round(pct, 1)
+            # For past 2/3 days — we'd need more history; for now, leave as previous or blank
+            # (you can expand later if you want to keep more history snapshots)
 
-                # Past 3 days
-                three_days_ago = current_time - timedelta(days=3)
-                prev_3days = artist_df[artist_df['timestamp_dt'] <= three_days_ago]
-                if not prev_3days.empty:
-                    closest = prev_3days.iloc[-1]
-                    delta = current_count - closest['monthly_listeners']
-                    pct = (delta / closest['monthly_listeners'] * 100) if closest['monthly_listeners'] > 0 else 0
-                    df.at[idx, 'change_past_3_days'] = delta
-                    df.at[idx, 'pct_past_3_days'] = round(pct, 1)
-
-    # Save CSV
-    df_save = df.drop(columns=['timestamp_dt'], errors='ignore')
-    df_save.to_csv("spotify_listeners_history.csv", index=False)
-
-    # Alerts
-    if has_old_data and df_old is not None:
-        for row in df_new.itertuples():
-            artist_name = row.artist
-            new_count = row.monthly_listeners
-            prev = df_old[df_old['artist'] == artist_name]
-            if not prev.empty:
-                last_count = prev.iloc[-1]['monthly_listeners']
-                if last_count > 0:
-                    pct_change = abs((new_count - last_count) / last_count * 100)
-                    abs_change = abs(new_count - last_count)
-                    if pct_change > CHANGE_THRESHOLD_PERCENT or abs_change > CHANGE_THRESHOLD_ABSOLUTE:
-                        delta = new_count - last_count
-                        msg = f"🚨 <b>Big listener change!</b>\n\n<b>{artist_name}</b>: {last_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}"
-                        send_telegram(msg)
-
-    # Dashboard with color-coding based on most recent change
-    df_plot = df.drop(columns=['timestamp_dt'], errors='ignore')
-    df_plot['timestamp'] = pd.to_datetime(df_plot['timestamp'])
-
-    fig = go.Figure()
-
-    for artist in df_plot['artist'].unique():
-        artist_data = df_plot[df_plot['artist'] == artist]
-        if artist_data.empty:
-            continue
-
-        # Get most recent change (prefer yesterday if available)
-        recent_row = artist_data.iloc[-1]
-        last_change = recent_row.get('change_since_yesterday')
-        if pd.isna(last_change):
-            last_change = recent_row.get('change_past_2_days')
-        if pd.isna(last_change):
-            last_change = recent_row.get('change_past_3_days')
-
-        # Color logic
-        if pd.isna(last_change) or last_change == 0:
-            line_color = 'gray'
-        elif last_change > 0:
-            line_color = 'green'
+            # Update current values
+            df_history.at[artist, 'timestamp'] = timestamp
+            df_history.at[artist, 'monthly_listeners'] = row['monthly_listeners']
         else:
-            line_color = 'red'
+            # New artist — add row with blank gains
+            df_history = pd.concat([df_history, pd.DataFrame({
+                'timestamp': [timestamp],
+                'monthly_listeners': [row['monthly_listeners']],
+                'change_since_yesterday': [""],
+                'pct_since_yesterday': [""],
+                'change_past_2_days': [""],
+                'pct_past_2_days': [""],
+                'change_past_3_days': [""],
+                'pct_past_3_days': [""]
+            }, index=[artist])])
 
-        fig.add_trace(go.Scatter(
-            x=artist_data['timestamp'],
-            y=artist_data['monthly_listeners'],
-            mode='lines+markers',
-            name=artist,
-            line=dict(color=line_color),
-            hovertemplate='Time: %{x}<br>Listeners: %{y:,}<extra></extra>'
-        ))
+    # Save updated history (one row per artist)
+    df_history.reset_index().to_csv("spotify_listeners_history.csv", index=False)
 
-    fig.update_layout(
-        title='2222scouter Monthly Listener Tracker (Colored by Recent Gain)',
-        xaxis_title='Date & Time',
-        yaxis_title='Monthly Listeners',
-        hovermode='x unified',
-        legend_title='Artist',
-        showlegend=True
-    )
-
+    # Dashboard (simple line plot still, but now based on history)
+    df_plot = df_history.reset_index()
+    df_plot['timestamp'] = pd.to_datetime(df_plot['timestamp'])
+    fig = px.line(df_plot, x='timestamp', y='monthly_listeners', color='artist',
+                  markers=True, title='2222scouter Monthly Listener Tracker',
+                  labels={'timestamp': 'Date & Time', 'monthly_listeners': 'Monthly Listeners'})
+    fig.update_layout(hovermode='x unified', legend_title='Artist')
     fig.write_html('dashboard.html')
-    print("Dashboard updated with color-coding!")
+    print("Dashboard updated!")
+
+    # Alerts (on significant change)
+    for artist, row in df_new.iterrows():
+        if artist in df_history.index:
+            old_row = df_history.loc[artist]
+            last_count = old_row['monthly_listeners']
+            new_count = row['monthly_listeners']
+            if last_count > 0:
+                pct_change = abs((new_count - last_count) / last_count * 100)
+                abs_change = abs(new_count - last_count)
+                if pct_change > CHANGE_THRESHOLD_PERCENT or abs_change > CHANGE_THRESHOLD_ABSOLUTE:
+                    delta = new_count - last_count
+                    msg = f"🚨 <b>Big listener change!</b>\n\n<b>{artist}</b>: {last_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}"
+                    send_telegram(msg)
