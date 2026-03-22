@@ -6,7 +6,7 @@ import requests
 import os
 import plotly.express as px
 
-# ============== YOUR ARTISTS (your 3 URLs added) ==============
+# ============== TEST YOUR ARTISTS (your 3 URLs added) ==============
 ARTISTS = [
     {"name": "King Princess", "url": "https://open.spotify.com/artist/4TZieE5978SbTInJswaay2"},
     {"name": "King Kylie",    "url": "https://open.spotify.com/artist/16PVIKGOsSoCCAIBANjgil"},
