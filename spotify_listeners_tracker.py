@@ -93,33 +93,41 @@ if new_rows:
         if artist in df_history.index:
             old_row = df_history.loc[artist]
 
-            # Shift old values back (simulate rolling 3-day history)
-            df_history.at[artist, 'listeners_3days_ago'] = old_row.get('listeners_2days_ago', None)
-            df_history.at[artist, 'timestamp_3days_ago'] = old_row.get('timestamp_2days_ago', None)
-            df_history.at[artist, 'listeners_2days_ago'] = old_row.get('listeners_1day_ago', None)
-            df_history.at[artist, 'timestamp_2days_ago'] = old_row.get('timestamp_1day_ago', None)
+            # Safely get old values (None if missing column or value)
+            listeners_1day_ago = old_row.get('listeners_1day_ago')
+            timestamp_1day_ago = old_row.get('timestamp_1day_ago')
+            listeners_2days_ago = old_row.get('listeners_2days_ago')
+            timestamp_2days_ago = old_row.get('timestamp_2days_ago')
+            listeners_3days_ago = old_row.get('listeners_3days_ago')
+            timestamp_3days_ago = old_row.get('timestamp_3days_ago')
+
+            # Shift old values back
+            df_history.at[artist, 'listeners_3days_ago'] = listeners_2days_ago
+            df_history.at[artist, 'timestamp_3days_ago'] = timestamp_2days_ago
+            df_history.at[artist, 'listeners_2days_ago'] = listeners_1day_ago
+            df_history.at[artist, 'timestamp_2days_ago'] = timestamp_1day_ago
             df_history.at[artist, 'listeners_1day_ago'] = old_row['monthly_listeners']
             df_history.at[artist, 'timestamp_1day_ago'] = old_row['timestamp']
 
-            # Calculate sequential changes
+            # Calculate sequential changes (safe checks)
             # Change since yesterday (current vs 1 day ago)
-            if pd.notna(old_row['listeners_1day_ago']):
-                delta_yest = new_count - old_row['listeners_1day_ago']
-                pct_yest = (delta_yest / old_row['listeners_1day_ago'] * 100) if old_row['listeners_1day_ago'] > 0 else 0
+            if listeners_1day_ago is not None and listeners_1day_ago > 0:
+                delta_yest = new_count - listeners_1day_ago
+                pct_yest = (delta_yest / listeners_1day_ago * 100)
                 df_history.at[artist, 'change_since_yesterday'] = delta_yest
                 df_history.at[artist, 'pct_since_yesterday'] = round(pct_yest, 1)
 
             # Day 1 to Day 2 (1day ago vs 2days ago)
-            if pd.notna(old_row['listeners_1day_ago']) and pd.notna(old_row['listeners_2days_ago']):
-                delta_1to2 = old_row['listeners_1day_ago'] - old_row['listeners_2days_ago']
-                pct_1to2 = (delta_1to2 / old_row['listeners_2days_ago'] * 100) if old_row['listeners_2days_ago'] > 0 else 0
+            if listeners_1day_ago is not None and listeners_2days_ago is not None and listeners_2days_ago > 0:
+                delta_1to2 = listeners_1day_ago - listeners_2days_ago
+                pct_1to2 = (delta_1to2 / listeners_2days_ago * 100)
                 df_history.at[artist, 'change_day1_to_day2'] = delta_1to2
                 df_history.at[artist, 'pct_day1_to_day2'] = round(pct_1to2, 1)
 
             # Day 2 to Day 3 (2days ago vs 3days ago)
-            if pd.notna(old_row['listeners_2days_ago']) and pd.notna(old_row['listeners_3days_ago']):
-                delta_2to3 = old_row['listeners_2days_ago'] - old_row['listeners_3days_ago']
-                pct_2to3 = (delta_2to3 / old_row['listeners_3days_ago'] * 100) if old_row['listeners_3days_ago'] > 0 else 0
+            if listeners_2days_ago is not None and listeners_3days_ago is not None and listeners_3days_ago > 0:
+                delta_2to3 = listeners_2days_ago - listeners_3days_ago
+                pct_2to3 = (delta_2to3 / listeners_3days_ago * 100)
                 df_history.at[artist, 'change_day2_to_day3'] = delta_2to3
                 df_history.at[artist, 'pct_day2_to_day3'] = round(pct_2to3, 1)
 
