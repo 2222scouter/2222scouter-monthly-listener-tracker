@@ -57,14 +57,16 @@ now_dt = datetime.now(timezone.utc)
 # Load existing history (one row per artist)
 try:
     df_history = pd.read_csv("spotify_listeners_history.csv")
-    # Make artist the index for easy update
     df_history.set_index('artist', inplace=True)
 except FileNotFoundError:
     df_history = pd.DataFrame(columns=[
         'artist', 'timestamp', 'monthly_listeners',
+        'listeners_1day_ago', 'timestamp_1day_ago',
+        'listeners_2days_ago', 'timestamp_2days_ago',
+        'listeners_3days_ago', 'timestamp_3days_ago',
         'change_since_yesterday', 'pct_since_yesterday',
-        'change_past_2_days', 'pct_past_2_days',
-        'change_past_3_days', 'pct_past_3_days'
+        'change_day1_to_day2', 'pct_day1_to_day2',
+        'change_day2_to_day3', 'pct_day2_to_day3'
     ])
     df_history.set_index('artist', inplace=True)
 
@@ -86,52 +88,67 @@ if new_rows:
     df_new = pd.DataFrame(new_rows)
     df_new.set_index('artist', inplace=True)
 
-    # Update history with new data
     for artist, row in df_new.iterrows():
+        new_count = row['monthly_listeners']
         if artist in df_history.index:
             old_row = df_history.loc[artist]
 
-            # Calculate changes
-            delta = row['monthly_listeners'] - old_row['monthly_listeners']
-            pct = (delta / old_row['monthly_listeners'] * 100) if old_row['monthly_listeners'] > 0 else 0
+            # Shift old values back (simulate rolling 3-day history)
+            df_history.at[artist, 'listeners_3days_ago'] = old_row.get('listeners_2days_ago', None)
+            df_history.at[artist, 'timestamp_3days_ago'] = old_row.get('timestamp_2days_ago', None)
+            df_history.at[artist, 'listeners_2days_ago'] = old_row.get('listeners_1day_ago', None)
+            df_history.at[artist, 'timestamp_2days_ago'] = old_row.get('timestamp_1day_ago', None)
+            df_history.at[artist, 'listeners_1day_ago'] = old_row['monthly_listeners']
+            df_history.at[artist, 'timestamp_1day_ago'] = old_row['timestamp']
 
-            # Update gains (since this is daily-ish, "since yesterday" is now the previous row)
-            df_history.at[artist, 'change_since_yesterday'] = delta
-            df_history.at[artist, 'pct_since_yesterday'] = round(pct, 1)
+            # Calculate sequential changes
+            # Change since yesterday (current vs 1 day ago)
+            if pd.notna(old_row['listeners_1day_ago']):
+                delta_yest = new_count - old_row['listeners_1day_ago']
+                pct_yest = (delta_yest / old_row['listeners_1day_ago'] * 100) if old_row['listeners_1day_ago'] > 0 else 0
+                df_history.at[artist, 'change_since_yesterday'] = delta_yest
+                df_history.at[artist, 'pct_since_yesterday'] = round(pct_yest, 1)
 
-            # For past 2/3 days — we'd need more history; for now, leave as previous or blank
-            # (you can expand later if you want to keep more history snapshots)
+            # Day 1 to Day 2 (1day ago vs 2days ago)
+            if pd.notna(old_row['listeners_1day_ago']) and pd.notna(old_row['listeners_2days_ago']):
+                delta_1to2 = old_row['listeners_1day_ago'] - old_row['listeners_2days_ago']
+                pct_1to2 = (delta_1to2 / old_row['listeners_2days_ago'] * 100) if old_row['listeners_2days_ago'] > 0 else 0
+                df_history.at[artist, 'change_day1_to_day2'] = delta_1to2
+                df_history.at[artist, 'pct_day1_to_day2'] = round(pct_1to2, 1)
 
-            # Update current values
+            # Day 2 to Day 3 (2days ago vs 3days ago)
+            if pd.notna(old_row['listeners_2days_ago']) and pd.notna(old_row['listeners_3days_ago']):
+                delta_2to3 = old_row['listeners_2days_ago'] - old_row['listeners_3days_ago']
+                pct_2to3 = (delta_2to3 / old_row['listeners_3days_ago'] * 100) if old_row['listeners_3days_ago'] > 0 else 0
+                df_history.at[artist, 'change_day2_to_day3'] = delta_2to3
+                df_history.at[artist, 'pct_day2_to_day3'] = round(pct_2to3, 1)
+
+            # Update current
             df_history.at[artist, 'timestamp'] = timestamp
-            df_history.at[artist, 'monthly_listeners'] = row['monthly_listeners']
+            df_history.at[artist, 'monthly_listeners'] = new_count
         else:
-            # New artist — add row with blank gains
+            # New artist
             df_history = pd.concat([df_history, pd.DataFrame({
                 'timestamp': [timestamp],
-                'monthly_listeners': [row['monthly_listeners']],
-                'change_since_yesterday': [""],
-                'pct_since_yesterday': [""],
-                'change_past_2_days': [""],
-                'pct_past_2_days': [""],
-                'change_past_3_days': [""],
-                'pct_past_3_days': [""]
+                'monthly_listeners': [new_count],
+                'listeners_1day_ago': [None],
+                'timestamp_1day_ago': [None],
+                'listeners_2days_ago': [None],
+                'timestamp_2days_ago': [None],
+                'listeners_3days_ago': [None],
+                'timestamp_3days_ago': [None],
+                'change_since_yesterday': [None],
+                'pct_since_yesterday': [None],
+                'change_day1_to_day2': [None],
+                'pct_day1_to_day2': [None],
+                'change_day2_to_day3': [None],
+                'pct_day2_to_day3': [None]
             }, index=[artist])])
 
     # Save updated history (one row per artist)
     df_history.reset_index().to_csv("spotify_listeners_history.csv", index=False)
 
-    # Dashboard (simple line plot still, but now based on history)
-    df_plot = df_history.reset_index()
-    df_plot['timestamp'] = pd.to_datetime(df_plot['timestamp'])
-    fig = px.line(df_plot, x='timestamp', y='monthly_listeners', color='artist',
-                  markers=True, title='2222scouter Monthly Listener Tracker',
-                  labels={'timestamp': 'Date & Time', 'monthly_listeners': 'Monthly Listeners'})
-    fig.update_layout(hovermode='x unified', legend_title='Artist')
-    fig.write_html('dashboard.html')
-    print("Dashboard updated!")
-
-    # Alerts (on significant change)
+    # Alerts on significant current change
     for artist, row in df_new.iterrows():
         if artist in df_history.index:
             old_row = df_history.loc[artist]
@@ -144,3 +161,13 @@ if new_rows:
                     delta = new_count - last_count
                     msg = f"🚨 <b>Big listener change!</b>\n\n<b>{artist}</b>: {last_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}"
                     send_telegram(msg)
+
+    # Dashboard
+    df_plot = df_history.reset_index()
+    df_plot['timestamp'] = pd.to_datetime(df_plot['timestamp'])
+    fig = px.line(df_plot, x='timestamp', y='monthly_listeners', color='artist',
+                  markers=True, title='2222scouter Monthly Listener Tracker',
+                  labels={'timestamp': 'Date & Time', 'monthly_listeners': 'Monthly Listeners'})
+    fig.update_layout(hovermode='x unified', legend_title='Artist')
+    fig.write_html('dashboard.html')
+    print("Dashboard updated!")
