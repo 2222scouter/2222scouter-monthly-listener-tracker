@@ -67,7 +67,7 @@ if new_data:
     df_new = pd.DataFrame(new_data)
     
     has_old_data = False
-    df_old = None  # Prevent NameError
+    df_old = None  # This line prevents the NameError
     
     try:
         df_old = pd.read_csv("spotify_listeners_history.csv")
@@ -83,7 +83,7 @@ if new_data:
 
     df.to_csv("spotify_listeners_history.csv", index=False)
 
-    # Alerts only if we have old data
+    # Only run alerts if we have old data
     if has_old_data and df_old is not None:
         for row in df_new.itertuples():
             artist_name = row.artist
@@ -99,7 +99,7 @@ if new_data:
                         msg = f"🚨 <b>Big listener change!</b>\n\n<b>{artist_name}</b>: {last_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}"
                         send_telegram(msg)
 
-    # Dashboard
+    # Dashboard generation (this is the line that was missing in logs)
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     fig = px.line(df, x='timestamp', y='monthly_listeners', color='artist',
                   markers=True, title='2222scouter Monthly Listener Tracker',
