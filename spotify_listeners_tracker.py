@@ -8,8 +8,8 @@ import plotly.express as px
 
 # ============== EDIT THIS SECTION WITH YOUR ARTISTS ==============
 ARTISTS = [
-    {"name": "Your Artist 1", "url": "https://open.spotify.com/artist/PASTE_FIRST_ID_HERE"},
-    {"name": "Your Artist 2", "url": "https://open.spotify.com/artist/PASTE_SECOND_ID_HERE"},
+    {"name": "King Kylie", "url": "https://open.spotify.com/artist/16PVIKGOsSoCCAIBANjgil?si=M8POjTYTRQekxi5qfbXwnQ"},
+    {"name": "Grace Ives", "url": "https://open.spotify.com/artist/4TZieE5978SbTInJswaay2?si=p0GimnJVTNCwVnRH8lMd7Q"},
     # Add more lines here for up to 10+ artists:
     # {"name": "Artist 3", "url": "https://open.spotify.com/artist/ANOTHER_ID"},
 ]
