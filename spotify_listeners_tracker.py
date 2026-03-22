@@ -65,29 +65,37 @@ for a in ARTISTS:
     if artist in df_hist.index:
         old = df_hist.loc[artist]
 
-        # Shift history
-        df_hist.at[artist, 'listeners_3days_ago'] = old.get('listeners_2days_ago')
-        df_hist.at[artist, 'listeners_2days_ago'] = old.get('listeners_1day_ago')
-        df_hist.at[artist, 'listeners_1day_ago'] = old.get('monthly_listeners')
+        # Shift history safely
+        l3 = old.get('listeners_2days_ago')
+        l3 = l3.iloc[0] if isinstance(l3, pd.Series) else l3
+        df_hist.at[artist, 'listeners_3days_ago'] = l3
 
-        # Gains
-        l1 = old.get('listeners_1day_ago')
-        l2 = old.get('listeners_2days_ago')
-        l3 = old.get('listeners_3days_ago')
+        l2 = old.get('listeners_1day_ago')
+        l2 = l2.iloc[0] if isinstance(l2, pd.Series) else l2
+        df_hist.at[artist, 'listeners_2days_ago'] = l2
 
-        if pd.notnull(l1) and l1 > 0:
+        l1 = old.get('monthly_listeners')
+        l1 = l1.iloc[0] if isinstance(l1, pd.Series) else l1
+        df_hist.at[artist, 'listeners_1day_ago'] = l1
+
+        # Gains - safe scalar
+        l1 = l1 if pd.notna(l1) else None
+        l2 = l2 if pd.notna(l2) else None
+        l3 = l3 if pd.notna(l3) else None
+
+        if l1 is not None and l1 > 0:
             delta = count - l1
             pct = round(delta / l1 * 100, 1)
             df_hist.at[artist, 'change_since_yesterday'] = delta
             df_hist.at[artist, 'pct_since_yesterday'] = pct
 
-        if pd.notnull(l1) and pd.notnull(l2) and l2 > 0:
+        if l1 is not None and l2 is not None and l2 > 0:
             delta = l1 - l2
             pct = round(delta / l2 * 100, 1)
             df_hist.at[artist, 'change_day1_to_day2'] = delta
             df_hist.at[artist, 'pct_day1_to_day2'] = pct
 
-        if pd.notnull(l2) and pd.notnull(l3) and l3 > 0:
+        if l2 is not None and l3 is not None and l3 > 0:
             delta = l2 - l3
             pct = round(delta / l3 * 100, 1)
             df_hist.at[artist, 'change_day2_to_day3'] = delta
@@ -105,7 +113,7 @@ for a in ARTISTS:
             'change_day2_to_day3': [None], 'pct_day2_to_day3': [None]
         }, index=[artist])])
 
-    # Alerts - SAFE VERSION
+    # Alerts - safe scalar
     if artist in df_hist.index:
         old_count_series = df_hist.at[artist, 'monthly_listeners']
         if pd.isna(old_count_series).any():
