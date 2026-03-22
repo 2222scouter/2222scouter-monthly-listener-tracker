@@ -107,10 +107,11 @@ for a in ARTISTS:
 
     # Alerts - SAFE VERSION
     if artist in df_hist.index:
-        old_count_scalar = df_hist.at[artist, 'monthly_listeners']
-        if pd.isna(old_count_scalar):
+        old_count_series = df_hist.at[artist, 'monthly_listeners']
+        if pd.isna(old_count_series).any():
             continue
-        old_count = float(old_count_scalar)
+        old_count = old_count_series.item() if isinstance(old_count_series, pd.Series) else old_count_series
+        old_count = float(old_count)
         if old_count <= 0:
             continue
         pct_change = abs((count - old_count) / old_count * 100)
