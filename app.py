@@ -2,18 +2,56 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-st.set_page_config(page_title="2222scouter Listener Tracker", layout="wide", page_icon="📈")
+st.set_page_config(page_title="Tracker", layout="wide", initial_sidebar_state="collapsed")
 
-st.title("2222scouter Monthly Listener Tracker")
+# Off-white background, hide all Streamlit branding
+st.markdown("""
+    <style>
+        section[data-testid="stSidebar"] {display: none;}
+        .main .block-container {padding: 1rem 1rem 0rem !important;}
+        body, .stApp {background-color: #f8f9fa !important;}
+        h1, h2, h3, h4, h5, h6 {display: none;}
+        .tiny-title {
+            font-size: 11px;
+            color: #aaa;
+            text-align: center;
+            margin: 20px 0 80px 0;
+            letter-spacing: 1px;
+        }
+        .view-link {
+            font-size: 18px;
+            color: #555;
+            text-decoration: none;
+            padding: 10px 30px;
+            margin: 0 40px;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+        .view-link:hover {
+            color: #000;
+        }
+        .back-link {
+            font-size: 13px;
+            color: #888;
+            text-decoration: none;
+            position: absolute;
+            top: 15px;
+            left: 20px;
+        }
+        .back-link:hover {color: #333;}
+    </style>
+""", unsafe_allow_html=True)
 
-# Load data from GitHub raw CSV
-@st.cache_data(ttl=300)  # refresh every 5 minutes
+# Tiny title
+st.markdown('<div class="tiny-title">2222scouter tracker</div>', unsafe_allow_html=True)
+
+# Load data
+@st.cache_data(ttl=300)
 def load_data():
     url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
     try:
         df = pd.read_csv(url)
         df['timestamp'] = pd.to_datetime(df['timestamp'])
-        # Replace missing values with "-"
         df = df.fillna("-")
         return df
     except:
@@ -21,87 +59,51 @@ def load_data():
 
 df = load_data()
 
-if df.empty:
-    st.warning("No data yet — wait for the next scheduled run or trigger manually in Actions.")
-else:
-    tab1, tab2 = st.tabs(["📊 Growth Chart", "📋 Full CSV Table"])
+# Session state for view
+if 'view' not in st.session_state:
+    st.session_state.view = None
 
-    with tab1:
-        st.subheader("Monthly Listeners Over Time")
-        fig = px.line(df[df['monthly_listeners'] != "-"], 
-                      x='timestamp', y='monthly_listeners', color='artist',
-                      markers=True, title='Listener Trend by Artist')
-        fig.update_layout(hovermode='x unified', legend_title='Artist')
-        st.plotly_chart(fig, use_container_width=True)
+# Initial screen: two small words
+if st.session_state.view is None:
+    st.markdown("""
+        <div style="text-align: center; margin-top: 200px;">
+            <a class="view-link" href="#" onclick="document.getElementById('graph_btn').click();">graph</a>
+            <a class="view-link" href="#" onclick="document.getElementById('table_btn').click();">table</a>
+        </div>
+    """, unsafe_allow_html=True)
 
-    with tab2:
-        st.subheader("Full Data Table (like the CSV)")
+    # Hidden buttons to trigger state change
+    if st.button("graph", key="graph_btn", type="primary"):
+        st.session_state.view = "graph"
+        st.rerun()
+    if st.button("table", key="table_btn"):
+        st.session_state.view = "table"
+        st.rerun()
 
-        # Format numbers nicely
-        def format_number(x):
-            if x == "-":
-                return "-"
-            try:
-                return f"{float(x):,}"
-            except:
-                return x
+# Graph view
+elif st.session_state.view == "graph":
+    st.markdown('<a class="back-link" href="#" onclick="history.back()">back</a>', unsafe_allow_html=True)
+    if df.empty:
+        st.text("no data")
+    else:
+        fig = px.line(df, x='timestamp', y='monthly_listeners', color='artist',
+                      markers=True)
+        fig.update_layout(showlegend=False, margin=dict(l=0,r=0,t=0,b=0), xaxis_title=None, yaxis_title=None)
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
-        def format_change(x):
-            if x == "-":
-                return "-"
-            try:
-                return f"{float(x):+,.0f}"
-            except:
-                return x
-
-        def format_pct(x):
-            if x == "-":
-                return "-"
-            try:
-                return f"{float(x):+.1f}%"
-            except:
-                return x
-
-        # Apply formatting
-        display_df = df.copy()
-        for col in display_df.columns:
-            if "change_" in col:
-                display_df[col] = display_df[col].apply(format_change)
-            elif "pct_" in col:
-                display_df[col] = display_df[col].apply(format_pct)
-            elif col == "monthly_listeners":
-                display_df[col] = display_df[col].apply(format_number)
-            elif col == "timestamp":
-                display_df[col] = display_df[col].apply(lambda x: "-" if x == "-" else x.strftime("%Y-%m-%d %H:%M UTC"))
-
+# Table view
+elif st.session_state.view == "table":
+    st.markdown('<a class="back-link" href="#" onclick="history.back()">back</a>', unsafe_allow_html=True)
+    if df.empty:
+        st.text("no data")
+    else:
         st.dataframe(
-            display_df,
+            df,
             use_container_width=True,
             hide_index=True,
             column_config={
-                "timestamp": "Timestamp",
-                "artist": "Artist",
-                "monthly_listeners": "Monthly Listeners",
-                "change_since_yesterday": "Change Yesterday",
-                "pct_since_yesterday": "Pct Yesterday",
-                "change_day1_to_day2": "Change Day1→Day2",
-                "pct_day1_to_day2": "Pct Day1→Day2",
-                "change_day2_to_day3": "Change Day2→Day3",
-                "pct_day2_to_day3": "Pct Day2→Day3",
+                "timestamp": "time",
+                "artist": "artist",
+                "monthly_listeners": "listeners",
             }
         )
-
-        # Download button
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download CSV",
-            data=csv,
-            file_name="spotify_listeners_history.csv",
-            mime="text/csv"
-        )
-
-    if st.button("Refresh Data"):
-        st.cache_data.clear()
-        st.rerun()
-
-st.markdown("Data updates via GitHub Actions (3–4 PM EST). Add artists in your Google Sheet — they auto-appear here.")
