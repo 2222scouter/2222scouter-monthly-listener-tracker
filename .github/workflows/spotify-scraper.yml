@@ -6,23 +6,38 @@ import requests
 import os
 import plotly.express as px
 
-# ============= YOUR ARTISTS (your 3 URLs added) ==============
-ARTISTS = [
-    {"name": "King Kylie",    "url": "https://open.spotify.com/artist/16PVIKGOsSoCCAIBANjgil"},
-    {"name": "Grace Ives",    "url": "https://open.spotify.com/artist/3HKbW1X4Aj2RZU6ruh3a0e"},
-    # Add more lines here for additional artists if you want (up to 10+ is fine)
-]
+# ============== AUTO-LOAD ARTISTS FROM YOUR GOOGLE SHEET ==============
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSa5tdG_4WSMrmGcaJhOZBwC_6oyXVSbpLjdrf8hfgRB_rHwm49rohMiE6ZATi42ScZDo5d1_fAW_Sw/pub?gid=0&single=true&output=csv"
+
+try:
+    artists_df = pd.read_csv(SHEET_CSV_URL)
+    # Flexible column detection (case-insensitive, looks for 'artist/name' or 'url/spotify')
+    name_col = next((col for col in artists_df.columns if 'artist' in col.lower() or 'name' in col.lower()), artists_df.columns[0])
+    url_col = next((col for col in artists_df.columns if 'url' in col.lower() or 'spotify' in col.lower()), artists_df.columns[1])
+    
+    ARTISTS = [
+        {"name": str(row[name_col]).strip(), "url": str(row[url_col]).strip()}
+        for _, row in artists_df.iterrows()
+        if pd.notna(row[name_col]) and pd.notna(row[url_col]) and 'open.spotify.com/artist' in str(row[url_col])
+    ]
+    print(f"Loaded {len(ARTISTS)} artists from Google Sheet: {', '.join(a['name'] for a in ARTISTS)}")
+except Exception as e:
+    print(f"Error loading sheet: {e}. Using fallback artists.")
+    ARTISTS = [
+        {"name": "Grace Ives", "url": "https://open.spotify.com/artist/4TZieE5978SbTInJswaay2"},
+        {"name": "King Kylie", "url": "https://open.spotify.com/artist/16PVIKGOsSoCCAIBANjgil"},
+    ]
 
 CHANGE_THRESHOLD_PERCENT = 5.0     # Alert if % change > this
 CHANGE_THRESHOLD_ABSOLUTE = 15000  # OR if raw change > this
-# ================================================================
+# =====================================================================
 
 def get_monthly_listeners(url):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(url, wait_until="networkidle", timeout=60000)
-        page.wait_for_timeout(4000)  # Give time for dynamic content to load
+        page.wait_for_timeout(5000)  # Extra buffer for Spotify dynamic load
         elem = page.get_by_text(re.compile("monthly listeners", re.IGNORECASE)).first
         text = elem.inner_text().strip() if elem else ""
         match = re.search(r'([\d,]+)', text)
@@ -37,8 +52,7 @@ def send_telegram(message):
         requests.post(url, json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"})
         print("📨 Telegram alert sent!")
 
-# Use timezone-aware UTC (avoids deprecation warning)
-timestamp = datetime.now().strftime("%Y-%m-%d %H:%M UTC")
+timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
 
 new_data = []
 for artist in ARTISTS:
@@ -65,7 +79,7 @@ if new_data:
 
     df.to_csv("spotify_listeners_history.csv", index=False)
 
-    # Only check for changes/alerts if we have previous data
+    # Alerts only if previous data exists
     if has_old_data:
         for row in df_new.itertuples():
             artist_name = row.artist
@@ -81,7 +95,7 @@ if new_data:
                         msg = f"🚨 <b>Big listener change!</b>\n\n<b>{artist_name}</b>: {last_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}"
                         send_telegram(msg)
 
-    # Always generate/update the dashboard
+    # Generate dashboard
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     fig = px.line(df, x='timestamp', y='monthly_listeners', color='artist',
                   markers=True, title='2222scouter Monthly Listener Tracker',
