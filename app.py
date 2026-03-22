@@ -24,10 +24,11 @@ st.markdown("""
             left: 0;
             background-color: #f8f9fa;
             z-index: 1;
-            min-width: 120px;
+            min-width: 140px;
+            padding: 8px !important;
         }
         .stDataFrame th:first-child {
-            background-color: #e8e8e8;
+            background-color: #e0e0e0;
             font-weight: bold;
         }
     </style>
@@ -35,7 +36,7 @@ st.markdown("""
 
 st.markdown('<div class="tiny-title">2222scouter tracker</div>', unsafe_allow_html=True)
 
-# Load and process data
+# Load and process data (7-day rolling, but only show 3 days of changes as requested)
 @st.cache_data(ttl=300)
 def load_and_process():
     url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
@@ -46,7 +47,7 @@ def load_and_process():
 
         result = []
         for artist in df['artist'].unique():
-            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(8)  # 7 days + current = 8 points max
+            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(4)  # current + 3 days back
             if len(artist_rows) == 0:
                 continue
 
@@ -57,12 +58,12 @@ def load_and_process():
                 'monthly_listeners': latest['monthly_listeners'],
             }
 
-            # Rolling daily changes (latest vs 1 day ago, 1 vs 2, 2 vs 3, ..., 6 vs 7)
-            for i in range(1, 8):
+            # Changes for 3 days back
+            for i in range(1, 4):
                 if i < len(artist_rows):
                     prev = artist_rows.iloc[i]
                     delta = latest['monthly_listeners'] - prev['monthly_listeners']
-                    pct = round(delta / prev['monthly_listeners'] * 100, 1) if prev['monthly_listeners'] > 0 else 0
+                    pct = round((delta / prev['monthly_listeners'] * 100), 1) if prev['monthly_listeners'] > 0 else 0
                     row[f'change_day{i-1}_to_day{i}'] = delta
                     row[f'pct_day{i-1}_to_day{i}'] = pct
                 else:
@@ -72,12 +73,14 @@ def load_and_process():
             result.append(row)
 
         result_df = pd.DataFrame(result)
-        # Reorder columns exactly as requested
-        cols = ['artist', 'time', 'monthly_listeners',
-                'change_day0_to_day1', 'pct_day0_to_day1',  # since yesterday
-                'change_day1_to_day2', 'pct_day1_to_day2',
-                'change_day2_to_day3', 'pct_day2_to_day3']
-        result_df = result_df[cols]
+        # Select only columns 1-5, 7, 9 (your list)
+        cols = [
+            'artist', 'time', 'monthly_listeners',
+            'change_day0_to_day1', 'pct_day0_to_day1',
+            'change_day1_to_day2', 'pct_day1_to_day2',
+            'change_day2_to_day3', 'pct_day2_to_day3'
+        ]
+        result_df = result_df[[c for c in cols if c in result_df.columns]]
         return result_df
     except:
         return pd.DataFrame()
@@ -87,12 +90,16 @@ df = load_and_process()
 if df.empty:
     st.text("no data yet")
 else:
-    # Format for display
+    # Format display
     def fmt_change(x):
-        return f"{x:+,d}" if isinstance(x, (int, float)) else x
+        if pd.isna(x) or x == 0:
+            return "0"
+        return f"{x:+,d}"
 
     def fmt_pct(x):
-        return f"{x:+.1f}%" if isinstance(x, (int, float)) else x
+        if pd.isna(x) or x == 0:
+            return "-"
+        return f"{x:+.1f}%"
 
     display_df = df.copy()
     for col in display_df.columns:
@@ -108,7 +115,7 @@ else:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "artist": st.column_config.TextColumn("Artist", width="medium"),
+            "artist": st.column_config.TextColumn("Artist", width="medium", frozen=True),
             "time": st.column_config.TextColumn("Time"),
             "monthly_listeners": st.column_config.TextColumn("Monthly Listeners"),
             "change_day0_to_day1": st.column_config.TextColumn("Change Yesterday"),
