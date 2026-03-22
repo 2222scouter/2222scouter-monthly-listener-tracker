@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import re
 import pandas as pd
 from playwright.sync_api import sync_playwright
@@ -52,6 +52,7 @@ def send_telegram(message):
         print("Telegram alert sent!")
 
 timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+now_dt = datetime.now(timezone.utc)
 
 new_data = []
 for artist in ARTISTS:
@@ -65,12 +66,14 @@ for artist in ARTISTS:
 
 if new_data:
     df_new = pd.DataFrame(new_data)
+    df_new['timestamp_dt'] = pd.to_datetime(df_new['timestamp'], utc=True)
     
     has_old_data = False
-    df_old = None  # This line prevents the NameError
+    df_old = None
     
     try:
         df_old = pd.read_csv("spotify_listeners_history.csv")
+        df_old['timestamp_dt'] = pd.to_datetime(df_old['timestamp'], utc=True)
         df = pd.concat([df_old, df_new], ignore_index=True)
         df = df.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
         has_old_data = True
@@ -81,9 +84,46 @@ if new_data:
         print(f"Error reading old CSV: {e}")
         df = df_new
 
-    df.to_csv("spotify_listeners_history.csv", index=False)
+    # Calculate gains for new rows
+    df['change_since_yesterday'] = ""
+    df['change_past_2_days'] = ""
+    df['change_past_3_days'] = ""
 
-    # Only run alerts if we have old data
+    if has_old_data:
+        df = df.sort_values(['artist', 'timestamp_dt'])
+        for artist in df['artist'].unique():
+            artist_df = df[df['artist'] == artist].copy()
+            for i in range(1, len(artist_df)):
+                idx = artist_df.index[i]
+                current_count = artist_df.iloc[i]['monthly_listeners']
+                current_time = artist_df.iloc[i]['timestamp_dt']
+
+                # Change since yesterday (~24h ago)
+                yesterday = current_time - timedelta(days=1)
+                prev_yesterday = artist_df[artist_df['timestamp_dt'] <= yesterday]
+                if not prev_yesterday.empty:
+                    closest = prev_yesterday.iloc[-1]
+                    df.at[idx, 'change_since_yesterday'] = current_count - closest['monthly_listeners']
+
+                # Change past 2 days (~48h ago)
+                two_days_ago = current_time - timedelta(days=2)
+                prev_2days = artist_df[artist_df['timestamp_dt'] <= two_days_ago]
+                if not prev_2days.empty:
+                    closest = prev_2days.iloc[-1]
+                    df.at[idx, 'change_past_2_days'] = current_count - closest['monthly_listeners']
+
+                # Change past 3 days (~72h ago)
+                three_days_ago = current_time - timedelta(days=3)
+                prev_3days = artist_df[artist_df['timestamp_dt'] <= three_days_ago]
+                if not prev_3days.empty:
+                    closest = prev_3days.iloc[-1]
+                    df.at[idx, 'change_past_3_days'] = current_count - closest['monthly_listeners']
+
+    # Save CSV without temp column
+    df_save = df.drop(columns=['timestamp_dt'], errors='ignore')
+    df_save.to_csv("spotify_listeners_history.csv", index=False)
+
+    # Alerts (unchanged)
     if has_old_data and df_old is not None:
         for row in df_new.itertuples():
             artist_name = row.artist
@@ -99,9 +139,10 @@ if new_data:
                         msg = f"🚨 <b>Big listener change!</b>\n\n<b>{artist_name}</b>: {last_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}"
                         send_telegram(msg)
 
-    # Dashboard generation (this is the line that was missing in logs)
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    fig = px.line(df, x='timestamp', y='monthly_listeners', color='artist',
+    # Dashboard
+    df_plot = df.drop(columns=['timestamp_dt'], errors='ignore')
+    df_plot['timestamp'] = pd.to_datetime(df_plot['timestamp'])
+    fig = px.line(df_plot, x='timestamp', y='monthly_listeners', color='artist',
                   markers=True, title='2222scouter Monthly Listener Tracker',
                   labels={'timestamp': 'Date & Time', 'monthly_listeners': 'Monthly Listeners'})
     fig.update_layout(hovermode='x unified', legend_title='Artist')
