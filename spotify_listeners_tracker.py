@@ -105,12 +105,12 @@ for a in ARTISTS:
             'change_day2_to_day3': [None], 'pct_day2_to_day3': [None]
         }, index=[artist])])
 
-    # Alerts - SAFE VERSION
+    # Alerts - FINAL SAFE VERSION
     if artist in df_hist.index:
         old_count_series = df_hist.at[artist, 'monthly_listeners']
         if pd.isna(old_count_series).any():
             continue
-        old_count = old_count_series.item() if isinstance(old_count_series, pd.Series) else old_count_series
+        old_count = old_count_series.iloc[0] if isinstance(old_count_series, pd.Series) else old_count_series
         old_count = float(old_count)
         if old_count <= 0:
             continue
