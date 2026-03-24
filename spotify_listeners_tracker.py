@@ -1,10 +1,9 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 import re
 import pandas as pd
 from playwright.sync_api import sync_playwright
 import requests
 import os
-import plotly.express as px
 
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSa5tdG_4WSMrmGcaJhOZBwC_6oyXVSbpLjdrf8hfgRB_rHwm49rohMiE6ZATi42ScZDo5d1_fAW_Sw/pub?gid=0&single=true&output=csv"
 
@@ -23,9 +22,6 @@ except:
     ]
     print("Sheet load failed, using fallback")
 
-CHANGE_THRESHOLD_PERCENT = 5.0
-CHANGE_THRESHOLD_ABSOLUTE = 15000
-
 def get_monthly_listeners(url):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -38,69 +34,59 @@ def get_monthly_listeners(url):
         browser.close()
         return int(match.group(1).replace(',', '')) if match else None
 
-def send_telegram(msg):
-    token = os.getenv('TELEGRAM_BOT_TOKEN')
-    chat_id = os.getenv('TELEGRAM_CHAT_ID')
-    if token and chat_id:
-        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"})
-        print("Alert sent")
+def get_total_streams(url):
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.goto(url, wait_until="networkidle", timeout=60000)
+        page.wait_for_timeout(6000)
+        text = page.text_content("body")
+        matches = re.findall(r'([\d,]+)\s*(?:total\s*)?streams?', text, re.IGNORECASE)
+        if matches:
+            numbers = [int(m.replace(',', '')) for m in matches]
+            return max(numbers)
+        return None
 
 timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
+# Load or create history files
 try:
-    df_hist = pd.read_csv("spotify_listeners_history.csv")
+    df_listeners = pd.read_csv("spotify_listeners_history.csv")
 except FileNotFoundError:
-    df_hist = pd.DataFrame(columns=['timestamp', 'artist', 'monthly_listeners',
-                                    'change_since_yesterday', 'pct_since_yesterday',
-                                    'change_day1_to_day2', 'pct_day1_to_day2',
-                                    'change_day2_to_day3', 'pct_day2_to_day3'])
+    df_listeners = pd.DataFrame(columns=['timestamp', 'artist', 'monthly_listeners'])
 
-new_data = []
+try:
+    df_streams = pd.read_csv("spotify_streams_history.csv")
+except FileNotFoundError:
+    df_streams = pd.DataFrame(columns=['timestamp', 'artist', 'total_streams'])
+
+new_listeners = []
+new_streams = []
+
 for a in ARTISTS:
-    count = get_monthly_listeners(a["url"])
-    if count is None: continue
-    print(f"✅ {a['name']}: {count:,} at {timestamp}")
-    new_data.append({"timestamp": timestamp, "artist": a["name"], "monthly_listeners": count})
-
-if new_data:
-    df_new = pd.DataFrame(new_data)
+    listeners = get_monthly_listeners(a["url"])
+    streams = get_total_streams(a["url"])
     
-    has_old_data = False
-    df_old = None
+    if listeners is not None:
+        print(f"✅ {a['name']}: {listeners:,} monthly listeners")
+        new_listeners.append({"timestamp": timestamp, "artist": a["name"], "monthly_listeners": listeners})
     
-    try:
-        df_old = pd.read_csv("spotify_listeners_history.csv")
-        df = pd.concat([df_old, df_new], ignore_index=True)
-        df = df.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
-        has_old_data = True
-    except FileNotFoundError:
-        df = df_new
-        print("First run — no history yet, skipping alerts")
-    except Exception as e:
-        print(f"Error reading old CSV: {e}")
-        df = df_new
+    if streams is not None:
+        print(f"✅ {a['name']}: {streams:,} total streams")
+        new_streams.append({"timestamp": timestamp, "artist": a["name"], "total_streams": streams})
 
-    df.to_csv("spotify_listeners_history.csv", index=False)
+# Save listeners
+if new_listeners:
+    df_new_l = pd.DataFrame(new_listeners)
+    df_listeners = pd.concat([df_listeners, df_new_l], ignore_index=True)
+    df_listeners = df_listeners.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
+    df_listeners.to_csv("spotify_listeners_history.csv", index=False)
 
-    if has_old_data and df_old is not None:
-        for row in df_new.itertuples():
-            artist_name = row.artist
-            new_count = row.monthly_listeners
-            prev = df_old[df_old['artist'] == artist_name]
-            if not prev.empty:
-                last_count = prev.iloc[-1]['monthly_listeners']
-                if last_count > 0:
-                    pct_change = abs((new_count - last_count) / last_count * 100)
-                    abs_change = abs(new_count - last_count)
-                    if pct_change > CHANGE_THRESHOLD_PERCENT or abs_change > CHANGE_THRESHOLD_ABSOLUTE:
-                        delta = new_count - last_count
-                        msg = f"🚨 <b>Big listener change!</b>\n\n<b>{artist_name}</b>: {last_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}% at {timestamp}"
-                        send_telegram(msg)
+# Save streams
+if new_streams:
+    df_new_s = pd.DataFrame(new_streams)
+    df_streams = pd.concat([df_streams, df_new_s], ignore_index=True)
+    df_streams = df_streams.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
+    df_streams.to_csv("spotify_streams_history.csv", index=False)
 
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    fig = px.line(df, x='timestamp', y='monthly_listeners', color='artist',
-                  markers=True, title='2222scouter Monthly Listener Tracker',
-                  labels={'timestamp': 'Date & Time', 'monthly_listeners': 'Monthly Listeners'})
-    fig.update_layout(hovermode='x unified', legend_title='Artist')
-    fig.write_html('dashboard.html')
-    print("Dashboard updated!")
+print("Both listeners and streams data saved!")
