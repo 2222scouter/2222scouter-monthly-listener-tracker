@@ -3,17 +3,17 @@ import pandas as pd
 
 st.set_page_config(page_title="Tracker", layout="wide", initial_sidebar_state="collapsed")
 
-# Off-white background, hide sidebar/header
+# Clean minimal style
 st.markdown("""
     <style>
         section[data-testid="stSidebar"] {display: none;}
         .main .block-container {padding: 1rem 1rem 0rem !important;}
         body, .stApp {background-color: #f8f9fa !important;}
         .tiny-title {
-            font-size: 11px;
-            color: #aaa;
+            font-size: 12px;
+            color: #888;
             text-align: center;
-            margin: 20px 0 40px 0;
+            margin: 20px 0 30px 0;
             letter-spacing: 1px;
         }
     </style>
@@ -21,17 +21,47 @@ st.markdown("""
 
 st.markdown('<div class="tiny-title">2222scouter tracker</div>', unsafe_allow_html=True)
 
-# Load data
+# Load and process data
 @st.cache_data(ttl=300)
 def load_data():
     url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
     try:
         df = pd.read_csv(url)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        # Fill missing gains with 0
-        gain_cols = [c for c in df.columns if 'change_' in c or 'pct_' in c]
-        df[gain_cols] = df[gain_cols].fillna(0)
-        return df
+        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+        df = df.sort_values(['artist', 'timestamp'], ascending=[True, False])
+
+        result = []
+        for artist in df['artist'].unique():
+            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(8)  # enough for 7 days
+
+            if len(artist_rows) == 0:
+                continue
+
+            latest = artist_rows.iloc[0]
+            previous = artist_rows.iloc[1] if len(artist_rows) > 1 else None
+
+            # Calculate % change since last scan
+            change_since_last = latest['monthly_listeners'] - previous['monthly_listeners'] if previous is not None else 0
+            pct_since_last = round(change_since_last / previous['monthly_listeners'] * 100, 1) if previous is not None and previous['monthly_listeners'] > 0 else 0
+
+            # Calculate % gain/loss over last 7 days (latest vs 7 days ago)
+            seven_days_ago = artist_rows.iloc[7] if len(artist_rows) > 7 else None
+            change_7days = latest['monthly_listeners'] - seven_days_ago['monthly_listeners'] if seven_days_ago is not None else 0
+            pct_7days = round(change_7days / seven_days_ago['monthly_listeners'] * 100, 1) if seven_days_ago is not None and seven_days_ago['monthly_listeners'] > 0 else 0
+
+            row = {
+                'artist': artist,
+                'date_of_latest_scan': latest['timestamp'].strftime('%Y-%m-%d %H:%M'),
+                'most_recent_listeners': latest['monthly_listeners'],
+                'pct_change_since_last': pct_since_last,
+                'change_since_last': change_since_last,
+                'last_scan_listeners': previous['monthly_listeners'] if previous is not None else 0,
+                'pct_7days': pct_7days,
+            }
+            result.append(row)
+
+        result_df = pd.DataFrame(result)
+        return result_df
     except:
         return pd.DataFrame()
 
@@ -41,45 +71,35 @@ if df.empty:
     st.text("no data yet")
 else:
     # Safe formatters
-    def fmt_change(x):
-        if pd.isna(x) or x == "" or x == "-":
-            return "0"
-        try:
-            return f"{float(x):+,d}"
-        except (ValueError, TypeError):
-            return str(x)
-
     def fmt_pct(x):
-        if pd.isna(x) or x == "" or x == "-":
+        if pd.isna(x) or x == 0:
             return "-"
-        try:
-            return f"{float(x):+.1f}%"
-        except (ValueError, TypeError):
-            return str(x)
+        return f"{x:+.1f}%"
+
+    def fmt_number(x):
+        if pd.isna(x):
+            return "0"
+        return f"{x:,}"
 
     display_df = df.copy()
-    for col in display_df.columns:
-        if 'change_' in col:
-            display_df[col] = display_df[col].apply(fmt_change)
-        elif 'pct_' in col:
-            display_df[col] = display_df[col].apply(fmt_pct)
-        elif col == 'monthly_listeners':
-            display_df[col] = display_df[col].apply(lambda x: f"{x:,}" if isinstance(x, (int, float)) else x)
+    display_df['pct_change_since_last'] = display_df['pct_change_since_last'].apply(fmt_pct)
+    display_df['pct_7days'] = display_df['pct_7days'].apply(fmt_pct)
+    display_df['most_recent_listeners'] = display_df['most_recent_listeners'].apply(fmt_number)
+    display_df['change_since_last'] = display_df['change_since_last'].apply(fmt_number)
+    display_df['last_scan_listeners'] = display_df['last_scan_listeners'].apply(fmt_number)
 
     st.dataframe(
         display_df,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "timestamp": st.column_config.TextColumn("Time"),
-            "artist": st.column_config.TextColumn("Artist"),
-            "monthly_listeners": st.column_config.TextColumn("Monthly Listeners"),
-            "change_since_yesterday": st.column_config.TextColumn("Change Since Yesterday"),
-            "pct_since_yesterday": st.column_config.TextColumn("Pct Since Yesterday"),
-            "change_day1_to_day2": st.column_config.TextColumn("Change Day1→Day2"),
-            "pct_day1_to_day2": st.column_config.TextColumn("Pct Day1→Day2"),
-            "change_day2_to_day3": st.column_config.TextColumn("Change Day2→Day3"),
-            "pct_day2_to_day3": st.column_config.TextColumn("Pct Day2→Day3"),
+            "artist": st.column_config.TextColumn("Artist", width="medium", frozen=True),
+            "date_of_latest_scan": st.column_config.TextColumn("Date of Latest Scan"),
+            "most_recent_listeners": st.column_config.TextColumn("Most Recent Listeners"),
+            "pct_change_since_last": st.column_config.TextColumn("% Change Since Last Scan"),
+            "change_since_last": st.column_config.TextColumn("# Change Since Last Scan"),
+            "last_scan_listeners": st.column_config.TextColumn("Last Scan Listeners"),
+            "pct_7days": st.column_config.TextColumn("% Gain/Loss Last 7 Days"),
         }
     )
 
