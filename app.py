@@ -21,19 +21,26 @@ st.markdown("""
 
 st.markdown('<div class="tiny-title">2222scouter tracker</div>', unsafe_allow_html=True)
 
-# Load and process data
+# Load and process data - one row per artist per day
 @st.cache_data(ttl=300)
 def load_data():
     url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
     try:
         df = pd.read_csv(url)
         df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
-        df = df.sort_values(['artist', 'timestamp'], ascending=[True, False])
-
+        
+        # Create a date-only column for grouping
+        df['date'] = df['timestamp'].dt.date
+        
+        # Keep only the latest scan per artist per day
+        df = df.sort_values(['artist', 'date', 'timestamp'], ascending=[True, True, False])
+        df = df.drop_duplicates(subset=['artist', 'date'], keep='first')
+        
+        # Now group by artist and calculate gains based on previous days
         result = []
         for artist in df['artist'].unique():
-            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(8)
-
+            artist_rows = df[df['artist'] == artist].sort_values('date', ascending=False).head(8)
+            
             if len(artist_rows) == 0:
                 continue
 
@@ -49,7 +56,7 @@ def load_data():
 
             row = {
                 'artist': artist,
-                'date_of_latest_scan': latest['timestamp'].strftime('%Y-%m-%d %H:%M'),
+                'date_of_latest_scan': latest['timestamp'].strftime('%Y-%m-%d'),
                 'most_recent_listeners': latest['monthly_listeners'],
                 'pct_change_since_last': pct_since_last,
                 'change_since_last': change_since_last,
