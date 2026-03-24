@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 
 st.set_page_config(page_title="Tracker", layout="wide", initial_sidebar_state="collapsed")
 
@@ -17,52 +16,125 @@ st.markdown("""
             margin: 20px 0 40px 0;
             letter-spacing: 1px;
         }
+        .stDataFrame [data-testid="stTable"] {
+            overflow-x: auto;
+        }
+        .stDataFrame th:first-child, .stDataFrame td:first-child {
+            position: sticky;
+            left: 0;
+            background-color: #f8f9fa;
+            z-index: 1;
+            min-width: 140px;
+            padding: 8px !important;
+        }
+        .stDataFrame th:first-child {
+            background-color: #e0e0e0;
+            font-weight: bold;
+        }
     </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="tiny-title">2222scouter tracker</div>', unsafe_allow_html=True)
 
-# Load data
+# Load and process data
 @st.cache_data(ttl=300)
-def load_data():
+def load_and_process():
     url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
     try:
         df = pd.read_csv(url)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        # Force 'artist' column (rename 'index' if present)
-        if 'index' in df.columns:
-            df = df.rename(columns={'index': 'artist'})
-        if 'artist' not in df.columns:
-            df['artist'] = 'Unknown'  # fallback
-        # Fill missing gains with 0
-        gain_cols = [c for c in df.columns if 'change_' in c or 'pct_' in c]
-        df[gain_cols] = df[gain_cols].fillna(0)
-        return df
+        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+        df = df.sort_values(['artist', 'timestamp'], ascending=[True, False])
+
+        result = []
+        for artist in df['artist'].unique():
+            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(4)  # latest + 3 days back
+            if len(artist_rows) == 0:
+                continue
+
+            latest = artist_rows.iloc[0]
+            row = {
+                'artist': artist,
+                'time': latest['timestamp'].strftime('%Y-%m-%d %H:%M UTC'),
+                'monthly_listeners': latest['monthly_listeners'],
+            }
+
+            # Change Since Yesterday (latest vs yesterday)
+            if len(artist_rows) > 1:
+                yesterday = artist_rows.iloc[1]
+                delta = latest['monthly_listeners'] - yesterday['monthly_listeners']
+                pct = round((delta / yesterday['monthly_listeners'] * 100), 1) if yesterday['monthly_listeners'] > 0 else 0
+                row['change_since_yesterday'] = delta
+                row['pct_since_yesterday'] = pct
+            else:
+                row['change_since_yesterday'] = 0
+                row['pct_since_yesterday'] = "-"
+
+            # Change Day1→Day2 (yesterday vs day before)
+            if len(artist_rows) > 2:
+                day1 = artist_rows.iloc[1]
+                day2 = artist_rows.iloc[2]
+                delta = day1['monthly_listeners'] - day2['monthly_listeners']
+                pct = round((delta / day2['monthly_listeners'] * 100), 1) if day2['monthly_listeners'] > 0 else 0
+                row['change_day1_to_day2'] = delta
+                row['pct_day1_to_day2'] = pct
+            else:
+                row['change_day1_to_day2'] = 0
+                row['pct_day1_to_day2'] = "-"
+
+            # Change Day2→Day3 (day before vs 2 days before)
+            if len(artist_rows) > 3:
+                day2 = artist_rows.iloc[2]
+                day3 = artist_rows.iloc[3]
+                delta = day2['monthly_listeners'] - day3['monthly_listeners']
+                pct = round((delta / day3['monthly_listeners'] * 100), 1) if day3['monthly_listeners'] > 0 else 0
+                row['change_day2_to_day3'] = delta
+                row['pct_day2_to_day3'] = pct
+            else:
+                row['change_day2_to_day3'] = 0
+                row['pct_day2_to_day3'] = "-"
+
+            result.append(row)
+
+        result_df = pd.DataFrame(result)
+        # Keep only the columns in your exact order
+        cols = ['artist', 'time', 'monthly_listeners',
+                'change_since_yesterday', 'pct_since_yesterday',
+                'change_day1_to_day2', 'pct_day1_to_day2',
+                'change_day2_to_day3', 'pct_day2_to_day3']
+        result_df = result_df[cols]
+        return result_df
     except:
         return pd.DataFrame()
 
-df = load_data()
+df = load_and_process()
 
 if df.empty:
     st.text("no data yet")
 else:
+    # Format display
+    def fmt_change(x):
+        if pd.isna(x) or x == 0:
+            return "0"
+        return f"{x:+,d}"
+
+    def fmt_pct(x):
+        if pd.isna(x) or x == 0:
+            return "-"
+        return f"{x:+.1f}%"
+
+    display_df = df.copy()
+    for col in display_df.columns:
+        if 'change_' in col:
+            display_df[col] = display_df[col].apply(fmt_change)
+        elif 'pct_' in col:
+            display_df[col] = display_df[col].apply(fmt_pct)
+        elif col == 'monthly_listeners':
+            display_df[col] = display_df[col].apply(lambda x: f"{x:,}" if isinstance(x, (int, float)) else x)
+
     st.dataframe(
-        df,
+        display_df,
         use_container_width=True,
         hide_index=True,
         column_config={
-            "timestamp": "time",
-            "artist": "artist",
-            "monthly_listeners": "listeners",
-            "change_since_yesterday": "change yesterday",
-            "pct_since_yesterday": "pct yesterday",
-            "change_day1_to_day2": "change day1→day2",
-            "pct_day1_to_day2": "pct day1→day2",
-            "change_day2_to_day3": "change day2→day3",
-            "pct_day2_to_day3": "pct day2→day3",
-        }
-    )
-
-# Refresh button
-if st.button("Refresh"):
-    st.rerun()
+            "artist": st.column_config.TextColumn("Artist", width="medium", frozen=True),
+            "time": st.column_config.TextColumn("Time"),
