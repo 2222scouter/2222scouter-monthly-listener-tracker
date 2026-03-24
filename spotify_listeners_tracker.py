@@ -37,18 +37,34 @@ def get_total_streams(url):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
-        page.goto(url, wait_until="networkidle", timeout=90000)   # longer timeout
-        page.wait_for_timeout(8000)
-        
-        # Multiple ways to find total streams
+        page.goto(url, wait_until="networkidle", timeout=90000)
+        page.wait_for_timeout(10000)   # longer wait for streams to load
+
+        # Try multiple patterns
         page_text = page.text_content("body").lower()
-        matches = re.findall(r'([\d,]+)\s*(?:total\s*)?streams?', page_text)
         
-        if matches:
-            numbers = [int(m.replace(',', '')) for m in matches]
-            return max(numbers)
+        # Common patterns
+        patterns = [
+            r'([\d,]+)\s*total\s*streams?',
+            r'([\d,]+)\s*streams?',
+            r'all-time\s*streams?\s*([\d,]+)',
+            r'streams?\s*([\d,]+)'
+        ]
         
-        # Try looking for large numbers near "streams"
+        for pattern in patterns:
+            matches = re.findall(pattern, page_text)
+            if matches:
+                numbers = [int(m.replace(',', '')) for m in matches if m.replace(',', '').isdigit()]
+                if numbers:
+                    return max(numbers)
+        
+        # Fallback: look for very large numbers (millions+) near the word "stream"
+        large_numbers = re.findall(r'\b(\d{1,3}(?:,\d{3})*)\b', page_text)
+        for num_str in large_numbers:
+            num = int(num_str.replace(',', ''))
+            if num > 1000000:   # likely a streams count
+                return num
+                
         browser.close()
         return None
 
