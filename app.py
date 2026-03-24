@@ -16,21 +16,6 @@ st.markdown("""
             margin: 20px 0 40px 0;
             letter-spacing: 1px;
         }
-        .stDataFrame [data-testid="stTable"] {
-            overflow-x: auto;
-        }
-        .stDataFrame th:first-child, .stDataFrame td:first-child {
-            position: sticky;
-            left: 0;
-            background-color: #f8f9fa;
-            z-index: 1;
-            min-width: 140px;
-            padding: 8px !important;
-        }
-        .stDataFrame th:first-child {
-            background-color: #e0e0e0;
-            font-weight: bold;
-        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -47,7 +32,7 @@ def load_and_process():
 
         result = []
         for artist in df['artist'].unique():
-            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(4)  # latest + 3 days back
+            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(4)
             if len(artist_rows) == 0:
                 continue
 
@@ -58,7 +43,7 @@ def load_and_process():
                 'monthly_listeners': latest['monthly_listeners'],
             }
 
-            # Change Since Yesterday (latest vs yesterday)
+            # Change Since Yesterday
             if len(artist_rows) > 1:
                 yesterday = artist_rows.iloc[1]
                 delta = latest['monthly_listeners'] - yesterday['monthly_listeners']
@@ -69,7 +54,7 @@ def load_and_process():
                 row['change_since_yesterday'] = 0
                 row['pct_since_yesterday'] = "-"
 
-            # Change Day1→Day2 (yesterday vs day before)
+            # Change Day1→Day2
             if len(artist_rows) > 2:
                 day1 = artist_rows.iloc[1]
                 day2 = artist_rows.iloc[2]
@@ -81,7 +66,7 @@ def load_and_process():
                 row['change_day1_to_day2'] = 0
                 row['pct_day1_to_day2'] = "-"
 
-            # Change Day2→Day3 (day before vs 2 days before)
+            # Change Day2→Day3
             if len(artist_rows) > 3:
                 day2 = artist_rows.iloc[2]
                 day3 = artist_rows.iloc[3]
@@ -96,12 +81,14 @@ def load_and_process():
             result.append(row)
 
         result_df = pd.DataFrame(result)
-        # Keep only the columns in your exact order
-        cols = ['artist', 'time', 'monthly_listeners',
-                'change_since_yesterday', 'pct_since_yesterday',
-                'change_day1_to_day2', 'pct_day1_to_day2',
-                'change_day2_to_day3', 'pct_day2_to_day3']
-        result_df = result_df[cols]
+        # Exact columns you want
+        cols = [
+            'artist', 'time', 'monthly_listeners',
+            'change_since_yesterday', 'pct_since_yesterday',
+            'change_day1_to_day2', 'pct_day1_to_day2',
+            'change_day2_to_day3', 'pct_day2_to_day3'
+        ]
+        result_df = result_df[[c for c in cols if c in result_df.columns]]
         return result_df
     except:
         return pd.DataFrame()
@@ -138,3 +125,16 @@ else:
         column_config={
             "artist": st.column_config.TextColumn("Artist", width="medium", frozen=True),
             "time": st.column_config.TextColumn("Time"),
+            "monthly_listeners": st.column_config.TextColumn("Monthly Listeners"),
+            "change_since_yesterday": st.column_config.TextColumn("Change Since Yesterday"),
+            "pct_since_yesterday": st.column_config.TextColumn("Pct Since Yesterday"),
+            "change_day1_to_day2": st.column_config.TextColumn("Change Day1→Day2"),
+            "pct_day1_to_day2": st.column_config.TextColumn("Pct Day1→Day2"),
+            "change_day2_to_day3": st.column_config.TextColumn("Change Day2→Day3"),
+            "pct_day2_to_day3": st.column_config.TextColumn("Pct Day2→Day3"),
+        }
+    )
+
+# Refresh button
+if st.button("Refresh"):
+    st.rerun()
