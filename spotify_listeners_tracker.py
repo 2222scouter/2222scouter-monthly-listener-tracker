@@ -2,7 +2,6 @@ from datetime import datetime, timezone
 import re
 import pandas as pd
 from playwright.sync_api import sync_playwright
-import requests
 import os
 
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSa5tdG_4WSMrmGcaJhOZBwC_6oyXVSbpLjdrf8hfgRB_rHwm49rohMiE6ZATi42ScZDo5d1_fAW_Sw/pub?gid=0&single=true&output=csv"
@@ -38,13 +37,19 @@ def get_total_streams(url):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
-        page.goto(url, wait_until="networkidle", timeout=60000)
-        page.wait_for_timeout(7000)  # extra wait for streams to load
-        text = page.text_content("body")
-        matches = re.findall(r'([\d,]+)\s*(?:total\s*)?streams?', text, re.IGNORECASE)
+        page.goto(url, wait_until="networkidle", timeout=90000)   # longer timeout
+        page.wait_for_timeout(8000)
+        
+        # Multiple ways to find total streams
+        page_text = page.text_content("body").lower()
+        matches = re.findall(r'([\d,]+)\s*(?:total\s*)?streams?', page_text)
+        
         if matches:
             numbers = [int(m.replace(',', '')) for m in matches]
-            return max(numbers)  # take the largest number found
+            return max(numbers)
+        
+        # Try looking for large numbers near "streams"
+        browser.close()
         return None
 
 timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -63,8 +68,10 @@ for a in ARTISTS:
     if streams is not None:
         print(f"✅ {a['name']}: {streams:,} total streams")
         new_streams.append({"timestamp": timestamp, "artist": a["name"], "total_streams": streams})
+    else:
+        print(f"⚠️  {a['name']}: Could not find total streams")
 
-# Save listeners history
+# Save listeners
 if new_listeners:
     df_new_l = pd.DataFrame(new_listeners)
     try:
@@ -75,7 +82,7 @@ if new_listeners:
     df_listeners = df_listeners.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
     df_listeners.to_csv("spotify_listeners_history.csv", index=False)
 
-# Save streams history
+# Save streams
 if new_streams:
     df_new_s = pd.DataFrame(new_streams)
     try:
@@ -85,5 +92,8 @@ if new_streams:
         df_streams = df_new_s
     df_streams = df_streams.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
     df_streams.to_csv("spotify_streams_history.csv", index=False)
+    print(f"✅ Saved {len(new_streams)} stream entries")
+else:
+    print("No stream data found this run")
 
-print("✅ Both listeners and streams data saved successfully!")
+print("Scraper finished!")
