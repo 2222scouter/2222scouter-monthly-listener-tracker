@@ -32,7 +32,7 @@ def load_data():
 
         result = []
         for artist in df['artist'].unique():
-            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(8)  # enough for 7 days
+            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(8)
 
             if len(artist_rows) == 0:
                 continue
@@ -40,11 +40,9 @@ def load_data():
             latest = artist_rows.iloc[0]
             previous = artist_rows.iloc[1] if len(artist_rows) > 1 else None
 
-            # Calculate % change since last scan
             change_since_last = latest['monthly_listeners'] - previous['monthly_listeners'] if previous is not None else 0
             pct_since_last = round(change_since_last / previous['monthly_listeners'] * 100, 1) if previous is not None and previous['monthly_listeners'] > 0 else 0
 
-            # Calculate % gain/loss over last 7 days (latest vs 7 days ago)
             seven_days_ago = artist_rows.iloc[7] if len(artist_rows) > 7 else None
             change_7days = latest['monthly_listeners'] - seven_days_ago['monthly_listeners'] if seven_days_ago is not None else 0
             pct_7days = round(change_7days / seven_days_ago['monthly_listeners'] * 100, 1) if seven_days_ago is not None and seven_days_ago['monthly_listeners'] > 0 else 0
@@ -60,8 +58,7 @@ def load_data():
             }
             result.append(row)
 
-        result_df = pd.DataFrame(result)
-        return result_df
+        return pd.DataFrame(result)
     except:
         return pd.DataFrame()
 
@@ -93,7 +90,7 @@ else:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "artist": st.column_config.TextColumn("Artist", width="medium", frozen=True),
+            "artist": st.column_config.TextColumn("Artist"),
             "date_of_latest_scan": st.column_config.TextColumn("Date of Latest Scan"),
             "most_recent_listeners": st.column_config.TextColumn("Most Recent Listeners"),
             "pct_change_since_last": st.column_config.TextColumn("% Change Since Last Scan"),
