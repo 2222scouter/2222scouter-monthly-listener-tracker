@@ -39,26 +39,15 @@ def get_total_streams(url):
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         page.goto(url, wait_until="networkidle", timeout=60000)
-        page.wait_for_timeout(6000)
+        page.wait_for_timeout(7000)  # extra wait for streams to load
         text = page.text_content("body")
         matches = re.findall(r'([\d,]+)\s*(?:total\s*)?streams?', text, re.IGNORECASE)
         if matches:
             numbers = [int(m.replace(',', '')) for m in matches]
-            return max(numbers)
+            return max(numbers)  # take the largest number found
         return None
 
 timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-# Load or create history files
-try:
-    df_listeners = pd.read_csv("spotify_listeners_history.csv")
-except FileNotFoundError:
-    df_listeners = pd.DataFrame(columns=['timestamp', 'artist', 'monthly_listeners'])
-
-try:
-    df_streams = pd.read_csv("spotify_streams_history.csv")
-except FileNotFoundError:
-    df_streams = pd.DataFrame(columns=['timestamp', 'artist', 'total_streams'])
 
 new_listeners = []
 new_streams = []
@@ -75,18 +64,26 @@ for a in ARTISTS:
         print(f"✅ {a['name']}: {streams:,} total streams")
         new_streams.append({"timestamp": timestamp, "artist": a["name"], "total_streams": streams})
 
-# Save listeners
+# Save listeners history
 if new_listeners:
     df_new_l = pd.DataFrame(new_listeners)
-    df_listeners = pd.concat([df_listeners, df_new_l], ignore_index=True)
+    try:
+        df_listeners = pd.read_csv("spotify_listeners_history.csv")
+        df_listeners = pd.concat([df_listeners, df_new_l], ignore_index=True)
+    except FileNotFoundError:
+        df_listeners = df_new_l
     df_listeners = df_listeners.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
     df_listeners.to_csv("spotify_listeners_history.csv", index=False)
 
-# Save streams
+# Save streams history
 if new_streams:
     df_new_s = pd.DataFrame(new_streams)
-    df_streams = pd.concat([df_streams, df_new_s], ignore_index=True)
+    try:
+        df_streams = pd.read_csv("spotify_streams_history.csv")
+        df_streams = pd.concat([df_streams, df_new_s], ignore_index=True)
+    except FileNotFoundError:
+        df_streams = df_new_s
     df_streams = df_streams.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
     df_streams.to_csv("spotify_streams_history.csv", index=False)
 
-print("Both listeners and streams data saved!")
+print("✅ Both listeners and streams data saved successfully!")
