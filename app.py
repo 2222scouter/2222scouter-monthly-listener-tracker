@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
 
 st.set_page_config(page_title="Tracker", layout="wide", initial_sidebar_state="collapsed")
 
@@ -20,24 +21,31 @@ st.markdown("""
 
 st.markdown('<div class="tiny-title">2222scouter tracker</div>', unsafe_allow_html=True)
 
-@st.cache_data(ttl=60)   # Reduced cache time to 1 minute
+@st.cache_data(ttl=300)
 def load_data():
     url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
     try:
         df = pd.read_csv(url)
-        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+        
+        # Fix timestamp if it's in milliseconds (Unix timestamp)
+        if df['timestamp'].dtype == 'int64' or df['timestamp'].dtype == 'float64':
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
+        else:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+        
+        # Keep only the latest entry per artist
         df = df.sort_values(['artist', 'timestamp'], ascending=[True, False])
-        # Keep only the latest scan for each artist
         df = df.drop_duplicates(subset='artist', keep='first')
+        
         return df
     except Exception as e:
-        st.error(f"Error loading data: {e}")
+        st.error(f"Error loading CSV: {e}")
         return pd.DataFrame(columns=['artist', 'timestamp', 'monthly_listeners'])
 
 df = load_data()
 
-if df.empty:
-    st.text("No data yet. Run the scraper first.")
+if df.empty or 'artist' not in df.columns:
+    st.text("no data yet")
 else:
     def fmt_number(x):
         if pd.isna(x):
@@ -53,7 +61,7 @@ else:
         hide_index=True,
         column_config={
             "artist": st.column_config.TextColumn("Artist"),
-            "timestamp": st.column_config.TextColumn("Date of Latest Scan"),
+            "timestamp": st.column_config.DatetimeColumn("Date of Latest Scan", format="D MMM YYYY HH:mm"),
             "most_recent_listeners": st.column_config.TextColumn("Most Recent Listeners"),
         }
     )
