@@ -25,7 +25,15 @@ def load_data():
     url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
     try:
         df = pd.read_csv(url)
-        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        
+        # Force correct column names
+        if 'index' in df.columns:
+            df = df.rename(columns={'index': 'artist'})
+        if 'artist' not in df.columns:
+            if len(df.columns) > 0:
+                df = df.rename(columns={df.columns[0]: 'artist'})
+        
         df = df.sort_values(['artist', 'timestamp'], ascending=[True, False])
         df = df.drop_duplicates(subset='artist', keep='first')
         return df
@@ -34,29 +42,23 @@ def load_data():
 
 df = load_data()
 
-if df.empty:
+if df.empty or 'artist' not in df.columns:
     st.text("no data yet")
 else:
-    # Calculate percentage change (keep raw number for sorting)
-    df['pct_change_raw'] = 0.0   # placeholder for now
-    
-    # For demonstration - replace with real previous value logic later
-    # For now we'll just show 0
+    def fmt_number(x):
+        if pd.isna(x):
+            return "0"
+        return f"{x:,}"
 
     def fmt_pct(x):
         if pd.isna(x) or x == 0:
             return "-"
         return f"{x:+.1f}%"
 
-    def fmt_number(x):
-        if pd.isna(x):
-            return "0"
-        return f"{x:,}"
-
     display_df = df.copy()
-    display_df['pct_change_since_last'] = display_df['pct_change_raw'].apply(fmt_pct)
     display_df['most_recent_listeners'] = display_df.get('monthly_listeners', 0).apply(fmt_number)
     display_df['change_since_last'] = 0
+    display_df['pct_change_since_last'] = "-"
 
     st.dataframe(
         display_df,
