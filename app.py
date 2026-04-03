@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 
 st.set_page_config(page_title="Tracker", layout="wide", initial_sidebar_state="collapsed")
 
@@ -26,34 +25,63 @@ def load_data():
     url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
     try:
         df = pd.read_csv(url)
-        
-        # Fix timestamp if it's in milliseconds (Unix timestamp)
-        if df['timestamp'].dtype == 'int64' or df['timestamp'].dtype == 'float64':
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
-        else:
-            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
-        
-        # Keep only the latest entry per artist
+        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
         df = df.sort_values(['artist', 'timestamp'], ascending=[True, False])
-        df = df.drop_duplicates(subset='artist', keep='first')
         
-        return df
-    except Exception as e:
-        st.error(f"Error loading CSV: {e}")
-        return pd.DataFrame(columns=['artist', 'timestamp', 'monthly_listeners'])
+        # Keep only latest per artist for display, but keep all for calculation
+        full_df = df.copy()
+        latest_df = df.drop_duplicates(subset='artist', keep='first')
+        
+        result = []
+        for artist in latest_df['artist'].unique():
+            artist_rows = full_df[full_df['artist'] == artist].sort_values('timestamp', ascending=False)
+            latest = artist_rows.iloc[0]
+            
+            # Change since last scan
+            change = 0
+            pct_change = 0
+            if len(artist_rows) > 1:
+                previous = artist_rows.iloc[1]
+                change = latest['monthly_listeners'] - previous['monthly_listeners']
+                pct_change = round(change / previous['monthly_listeners'] * 100, 1) if previous['monthly_listeners'] > 0 else 0
+
+            row = {
+                'artist': artist,
+                'date_of_latest_scan': latest['timestamp'].strftime('%Y-%m-%d %H:%M'),
+                'most_recent_listeners': latest['monthly_listeners'],
+                'change_since_last': change,
+                'pct_change_since_last': pct_change,
+            }
+            result.append(row)
+
+        return pd.DataFrame(result)
+    except:
+        return pd.DataFrame()
 
 df = load_data()
 
-if df.empty or 'artist' not in df.columns:
+if df.empty:
     st.text("no data yet")
 else:
+    def fmt_change(x):
+        if pd.isna(x) or x == 0:
+            return "0"
+        return f"{x:+,d}"
+
+    def fmt_pct(x):
+        if pd.isna(x) or x == 0:
+            return "-"
+        return f"{x:+.1f}%"
+
     def fmt_number(x):
         if pd.isna(x):
             return "0"
         return f"{x:,}"
 
     display_df = df.copy()
-    display_df['most_recent_listeners'] = display_df.get('monthly_listeners', 0).apply(fmt_number)
+    display_df['change_since_last'] = display_df['change_since_last'].apply(fmt_change)
+    display_df['pct_change_since_last'] = display_df['pct_change_since_last'].apply(fmt_pct)
+    display_df['most_recent_listeners'] = display_df['most_recent_listeners'].apply(fmt_number)
 
     st.dataframe(
         display_df,
@@ -61,8 +89,10 @@ else:
         hide_index=True,
         column_config={
             "artist": st.column_config.TextColumn("Artist"),
-            "timestamp": st.column_config.DatetimeColumn("Date of Latest Scan", format="D MMM YYYY HH:mm"),
+            "date_of_latest_scan": st.column_config.TextColumn("Date of Latest Scan"),
             "most_recent_listeners": st.column_config.TextColumn("Most Recent Listeners"),
+            "change_since_last": st.column_config.TextColumn("# Change Since Last Scan"),
+            "pct_change_since_last": st.column_config.TextColumn("% Change Since Last Scan"),
         }
     )
 
