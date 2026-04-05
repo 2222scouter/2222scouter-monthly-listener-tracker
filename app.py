@@ -15,28 +15,6 @@ st.markdown("""
             margin: 20px 0 30px 0;
             letter-spacing: 1px;
         }
-        
-        /* Stronger freeze for Artist column */
-        .stDataFrame {
-            overflow-x: auto;
-        }
-        .stDataFrame table {
-            width: 100%;
-        }
-        .stDataFrame th:first-child,
-        .stDataFrame td:first-child {
-            position: sticky;
-            left: 0;
-            background-color: #f8f9fa;
-            z-index: 10;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-            min-width: 160px;
-        }
-        .stDataFrame th:first-child {
-            background-color: #e0e0e0;
-            font-weight: bold;
-            z-index: 11;
-        }
     </style>
 """, unsafe_allow_html=True)
 
