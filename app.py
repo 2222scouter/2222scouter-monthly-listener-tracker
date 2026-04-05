@@ -30,25 +30,40 @@ def load_data():
 
         result = []
         for artist in df['artist'].unique():
-            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False)
+            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(5)  # enough for 3 days back
             if len(artist_rows) == 0:
                 continue
 
             latest = artist_rows.iloc[0]
-            
-            change = 0
-            pct_change = 0
+
+            # Change Since Yesterday
+            change_yesterday = 0
+            pct_yesterday = 0
             if len(artist_rows) > 1:
                 previous = artist_rows.iloc[1]
-                change = latest['monthly_listeners'] - previous['monthly_listeners']
-                pct_change = round(change / previous['monthly_listeners'] * 100, 1) if previous['monthly_listeners'] > 0 else 0
+                change_yesterday = latest['monthly_listeners'] - previous['monthly_listeners']
+                pct_yesterday = round(change_yesterday / previous['monthly_listeners'] * 100, 1) if previous['monthly_listeners'] > 0 else 0
+
+            # % Change Past 2 Days
+            pct_past_2 = 0
+            if len(artist_rows) > 2:
+                two_days_ago = artist_rows.iloc[2]
+                pct_past_2 = round((latest['monthly_listeners'] - two_days_ago['monthly_listeners']) / two_days_ago['monthly_listeners'] * 100, 1) if two_days_ago['monthly_listeners'] > 0 else 0
+
+            # % Change Past 3 Days
+            pct_past_3 = 0
+            if len(artist_rows) > 3:
+                three_days_ago = artist_rows.iloc[3]
+                pct_past_3 = round((latest['monthly_listeners'] - three_days_ago['monthly_listeners']) / three_days_ago['monthly_listeners'] * 100, 1) if three_days_ago['monthly_listeners'] > 0 else 0
 
             row = {
                 'artist': artist,
                 'date_of_latest_scan': latest['timestamp'].strftime('%Y-%m-%d %H:%M'),
                 'most_recent_listeners': latest['monthly_listeners'],
-                'change_since_yesterday': change,
-                'pct_change_since_yesterday': pct_change,
+                'change_since_yesterday': change_yesterday,
+                'pct_change_since_yesterday': pct_yesterday,
+                'pct_change_past_2_days': pct_past_2,
+                'pct_change_past_3_days': pct_past_3,
             }
             result.append(row)
 
@@ -79,6 +94,8 @@ else:
     display_df = df.copy()
     display_df['change_since_yesterday'] = display_df['change_since_yesterday'].apply(fmt_change)
     display_df['pct_change_since_yesterday'] = display_df['pct_change_since_yesterday'].apply(fmt_pct)
+    display_df['pct_change_past_2_days'] = display_df['pct_change_past_2_days'].apply(fmt_pct)
+    display_df['pct_change_past_3_days'] = display_df['pct_change_past_3_days'].apply(fmt_pct)
     display_df['most_recent_listeners'] = display_df['most_recent_listeners'].apply(fmt_number)
 
     st.dataframe(
@@ -91,6 +108,8 @@ else:
             "most_recent_listeners": st.column_config.TextColumn("Most Recent Listeners"),
             "change_since_yesterday": st.column_config.TextColumn("# Change Since Yesterday"),
             "pct_change_since_yesterday": st.column_config.TextColumn("% Change Since Yesterday"),
+            "pct_change_past_2_days": st.column_config.TextColumn("% Change Past 2 Days"),
+            "pct_change_past_3_days": st.column_config.TextColumn("% Change Past 3 Days"),
         }
     )
 
