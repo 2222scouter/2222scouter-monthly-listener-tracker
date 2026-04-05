@@ -15,6 +15,23 @@ st.markdown("""
             margin: 20px 0 30px 0;
             letter-spacing: 1px;
         }
+        /* Freeze Artist column */
+        .stDataFrame [data-testid="stTable"] {
+            overflow-x: auto;
+        }
+        .stDataFrame th:first-child, 
+        .stDataFrame td:first-child {
+            position: sticky;
+            left: 0;
+            background-color: #f8f9fa;
+            z-index: 1;
+            min-width: 160px;
+            padding: 8px !important;
+        }
+        .stDataFrame th:first-child {
+            background-color: #e0e0e0;
+            font-weight: bold;
+        }
     </style>
 """, unsafe_allow_html=True)
 
@@ -30,13 +47,12 @@ def load_data():
 
         result = []
         for artist in df['artist'].unique():
-            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(5)  # enough for 3 days back
+            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(5)
             if len(artist_rows) == 0:
                 continue
 
             latest = artist_rows.iloc[0]
 
-            # Change Since Yesterday
             change_yesterday = 0
             pct_yesterday = 0
             if len(artist_rows) > 1:
@@ -44,13 +60,11 @@ def load_data():
                 change_yesterday = latest['monthly_listeners'] - previous['monthly_listeners']
                 pct_yesterday = round(change_yesterday / previous['monthly_listeners'] * 100, 1) if previous['monthly_listeners'] > 0 else 0
 
-            # % Change Past 2 Days
             pct_past_2 = 0
             if len(artist_rows) > 2:
                 two_days_ago = artist_rows.iloc[2]
                 pct_past_2 = round((latest['monthly_listeners'] - two_days_ago['monthly_listeners']) / two_days_ago['monthly_listeners'] * 100, 1) if two_days_ago['monthly_listeners'] > 0 else 0
 
-            # % Change Past 3 Days
             pct_past_3 = 0
             if len(artist_rows) > 3:
                 three_days_ago = artist_rows.iloc[3]
@@ -103,7 +117,7 @@ else:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "artist": st.column_config.TextColumn("Artist"),
+            "artist": st.column_config.TextColumn("Artist", width="medium"),
             "date_of_latest_scan": st.column_config.TextColumn("Date of Latest Scan"),
             "most_recent_listeners": st.column_config.TextColumn("Most Recent Listeners"),
             "change_since_yesterday": st.column_config.TextColumn("# Change Since Yesterday"),
