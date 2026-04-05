@@ -15,22 +15,27 @@ st.markdown("""
             margin: 20px 0 30px 0;
             letter-spacing: 1px;
         }
-        /* Freeze Artist column */
-        .stDataFrame [data-testid="stTable"] {
+        
+        /* Stronger freeze for Artist column */
+        .stDataFrame {
             overflow-x: auto;
         }
-        .stDataFrame th:first-child, 
+        .stDataFrame table {
+            width: 100%;
+        }
+        .stDataFrame th:first-child,
         .stDataFrame td:first-child {
             position: sticky;
             left: 0;
             background-color: #f8f9fa;
-            z-index: 1;
+            z-index: 10;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
             min-width: 160px;
-            padding: 8px !important;
         }
         .stDataFrame th:first-child {
             background-color: #e0e0e0;
             font-weight: bold;
+            z-index: 11;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -117,7 +122,7 @@ else:
         use_container_width=True,
         hide_index=True,
         column_config={
-            "artist": st.column_config.TextColumn("Artist", width="medium"),
+            "artist": st.column_config.TextColumn("Artist"),
             "date_of_latest_scan": st.column_config.TextColumn("Date of Latest Scan"),
             "most_recent_listeners": st.column_config.TextColumn("Most Recent Listeners"),
             "change_since_yesterday": st.column_config.TextColumn("# Change Since Yesterday"),
