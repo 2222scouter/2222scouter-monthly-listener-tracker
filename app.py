@@ -1,86 +1,119 @@
-from datetime import datetime, timezone
-import re
+import streamlit as st
 import pandas as pd
-from playwright.sync_api import sync_playwright
-import requests
-import os
 
-SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSa5tdG_4WSMrmGcaJhOZBwC_6oyXVSbpLjdrf8hfgRB_rHwm49rohMiE6ZATi42ScZDo5d1_fAW_Sw/pub?gid=0&single=true&output=csv"
+st.set_page_config(page_title="Tracker", layout="wide", initial_sidebar_state="collapsed")
 
-try:
-    df_artists = pd.read_csv(SHEET_CSV_URL)
-    name_col = next((c for c in df_artists.columns if 'artist' in c.lower() or 'name' in c.lower()), df_artists.columns[0])
-    url_col = next((c for c in df_artists.columns if 'url' in c.lower() or 'spotify' in c.lower()), df_artists.columns[1])
-    ARTISTS = [{"name": str(r[name_col]).strip(), "url": str(r[url_col]).strip()} 
-               for _, r in df_artists.iterrows() 
-               if 'open.spotify.com/artist' in str(r[url_col])]
-    print(f"Loaded {len(ARTISTS)} artists")
-except:
-    ARTISTS = [
-        {"name": "Grace Ives", "url": "https://open.spotify.com/artist/4TZieE5978SbTInJswaay2"},
-        {"name": "King Kylie", "url": "https://open.spotify.com/artist/16PVIKGOsSoCCAIBANjgil"},
-    ]
-    print("Sheet load failed, using fallback")
+st.markdown("""
+    <style>
+        section[data-testid="stSidebar"] {display: none;}
+        .main .block-container {padding: 1rem 1rem 0rem !important;}
+        body, .stApp {background-color: #f8f9fa !important;}
+        .tiny-title {
+            font-size: 12px;
+            color: #888;
+            text-align: center;
+            margin: 20px 0 30px 0;
+            letter-spacing: 1px;
+        }
+    </style>
+""", unsafe_allow_html=True)
 
-CHANGE_THRESHOLD_PERCENT = 5.0   # Change this number if you want a different threshold
+st.markdown('<div class="tiny-title">2222scouter tracker</div>', unsafe_allow_html=True)
 
-def get_monthly_listeners(url):
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        page.goto(url, wait_until="networkidle", timeout=60000)
-        page.wait_for_timeout(5000)
-        elem = page.get_by_text(re.compile("monthly listeners", re.IGNORECASE)).first
-        text = elem.inner_text().strip() if elem else ""
-        match = re.search(r'([\d,]+)', text)
-        browser.close()
-        return int(match.group(1).replace(',', '')) if match else None
-
-def send_telegram(msg):
-    token = os.getenv('TELEGRAM_BOT_TOKEN')
-    chat_id = os.getenv('TELEGRAM_CHAT_ID')
-    if token and chat_id:
-        requests.post(f"https://api.telegram.org/bot{token}/sendMessage", 
-                      json={"chat_id": chat_id, "text": msg, "parse_mode": "HTML"})
-        print("✅ Telegram alert sent")
-    else:
-        print("⚠️ Telegram not configured")
-
-timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-
-new_data = []
-
-for a in ARTISTS:
-    count = get_monthly_listeners(a["url"])
-    if count is not None:
-        print(f"✅ {a['name']}: {count:,} monthly listeners")
-        new_data.append({"timestamp": timestamp, "artist": a["name"], "monthly_listeners": count})
-
-# Save history and check for big changes
-if new_data:
-    df_new = pd.DataFrame(new_data)
+@st.cache_data(ttl=300)
+def load_data():
+    url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
     try:
-        df_old = pd.read_csv("spotify_listeners_history.csv")
-        df = pd.concat([df_old, df_new], ignore_index=True)
-    except FileNotFoundError:
-        df = df_new
-
-    df = df.drop_duplicates(subset=['timestamp', 'artist'], keep='last')
-    df.to_csv("spotify_listeners_history.csv", index=False)
-
-    # Check for big changes (compare new data to previous)
-    for row in df_new.itertuples():
-        artist = row.artist
-        new_count = row.monthly_listeners
+        df = pd.read_csv(url)
+        df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
+        df['date'] = df['timestamp'].dt.date
         
-        prev = df_old[df_old['artist'] == artist] if 'df_old' in locals() else pd.DataFrame()
-        if not prev.empty:
-            last_count = prev.iloc[-1]['monthly_listeners']
-            if last_count > 0:
-                pct_change = abs((new_count - last_count) / last_count * 100)
-                if pct_change > CHANGE_THRESHOLD_PERCENT:
-                    delta = new_count - last_count
-                    msg = f"🚨 <b>Big Change Detected!</b>\n\n<b>{artist}</b>\n{last_count:,} → {new_count:,} ({delta:+,})\n{pct_change:.1f}%"
-                    send_telegram(msg)
+        # Keep latest scan per artist per day
+        df = df.sort_values(['artist', 'date', 'timestamp'], ascending=[True, True, False])
+        df = df.drop_duplicates(subset=['artist', 'date'], keep='first')
+        
+        result = []
+        for artist in df['artist'].unique():
+            artist_rows = df[df['artist'] == artist].sort_values('date', ascending=False).head(4)
+            if len(artist_rows) == 0:
+                continue
 
-print("Scraper finished!")
+            latest = artist_rows.iloc[0]
+
+            change_yesterday = 0
+            pct_yesterday = 0
+            if len(artist_rows) > 1:
+                previous = artist_rows.iloc[1]
+                change_yesterday = latest['monthly_listeners'] - previous['monthly_listeners']
+                pct_yesterday = round(change_yesterday / previous['monthly_listeners'] * 100, 1) if previous['monthly_listeners'] > 0 else 0
+
+            pct_past_2 = 0
+            if len(artist_rows) > 2:
+                two_days_ago = artist_rows.iloc[2]
+                pct_past_2 = round((latest['monthly_listeners'] - two_days_ago['monthly_listeners']) / two_days_ago['monthly_listeners'] * 100, 1) if two_days_ago['monthly_listeners'] > 0 else 0
+
+            pct_past_3 = 0
+            if len(artist_rows) > 3:
+                three_days_ago = artist_rows.iloc[3]
+                pct_past_3 = round((latest['monthly_listeners'] - three_days_ago['monthly_listeners']) / three_days_ago['monthly_listeners'] * 100, 1) if three_days_ago['monthly_listeners'] > 0 else 0
+
+            row = {
+                'artist': artist,
+                'date_of_latest_scan': latest['timestamp'].strftime('%Y-%m-%d %H:%M'),
+                'most_recent_listeners': latest['monthly_listeners'],
+                'change_since_yesterday': change_yesterday,
+                'pct_change_since_yesterday': pct_yesterday,
+                'pct_change_past_2_days': pct_past_2,
+                'pct_change_past_3_days': pct_past_3,
+            }
+            result.append(row)
+
+        return pd.DataFrame(result)
+    except:
+        return pd.DataFrame()
+
+df = load_data()
+
+if df.empty:
+    st.text("no data yet")
+else:
+    def fmt_change(x):
+        if pd.isna(x) or x == 0:
+            return "0"
+        return f"{x:+,d}"
+
+    def fmt_pct(x):
+        if pd.isna(x) or x == 0:
+            return "-"
+        return f"{x:+.1f}%"
+
+    def fmt_number(x):
+        if pd.isna(x):
+            return "0"
+        return f"{x:,}"
+
+    display_df = df.copy()
+    display_df['change_since_yesterday'] = display_df['change_since_yesterday'].apply(fmt_change)
+    display_df['pct_change_since_yesterday'] = display_df['pct_change_since_yesterday'].apply(fmt_pct)
+    display_df['pct_change_past_2_days'] = display_df['pct_change_past_2_days'].apply(fmt_pct)
+    display_df['pct_change_past_3_days'] = display_df['pct_change_past_3_days'].apply(fmt_pct)
+    display_df['most_recent_listeners'] = display_df['most_recent_listeners'].apply(fmt_number)
+
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "artist": st.column_config.TextColumn("Artist"),
+            "date_of_latest_scan": st.column_config.TextColumn("Date of Latest Scan"),
+            "most_recent_listeners": st.column_config.TextColumn("Most Recent Listeners"),
+            "change_since_yesterday": st.column_config.TextColumn("# Change Since Yesterday"),
+            "pct_change_since_yesterday": st.column_config.TextColumn("% Change Since Yesterday"),
+            "pct_change_past_2_days": st.column_config.TextColumn("% Change Past 2 Days"),
+            "pct_change_past_3_days": st.column_config.TextColumn("% Change Past 3 Days"),
+        }
+    )
+
+if st.button("Refresh Data"):
+    st.cache_data.clear()
+    st.rerun()
