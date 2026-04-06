@@ -22,26 +22,53 @@ st.markdown('<div class="tiny-title">2222scouter tracker</div>', unsafe_allow_ht
 
 @st.cache_data(ttl=300)
 def load_data():
-    history_url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
-    sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSa5tdG_4WSMrmGcaJhOZBwC_6oyXVSbpLjdrf8hfgRB_rHwm49rohMiE6ZATi42ScZDo5d1_fAW_Sw/pub?gid=0&single=true&output=csv"
-    
+    url = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv"
     try:
-        df = pd.read_csv(history_url)
+        df = pd.read_csv(url)
         df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
-        df = df.sort_values(['artist', 'timestamp'], ascending=[True, False])
+        df['date'] = df['timestamp'].dt.date
+        
+        # Keep latest scan per artist per day
+        df = df.sort_values(['artist', 'date', 'timestamp'], ascending=[True, True, False])
+        df = df.drop_duplicates(subset=['artist', 'date'], keep='first')
+        
+        result = []
+        for artist in df['artist'].unique():
+            artist_rows = df[df['artist'] == artist].sort_values('date', ascending=False).head(4)
+            if len(artist_rows) == 0:
+                continue
 
-        # Keep latest per artist for display
-        df = df.drop_duplicates(subset='artist', keep='first')
-        
-        # Load current artists from Google Sheet
-        sheet_df = pd.read_csv(sheet_url)
-        # First column of the sheet is assumed to be the artist name
-        active_artists = set(sheet_df.iloc[:, 0].astype(str).str.strip())
-        
-        # Filter to only show artists that are still in the Google Sheet
-        df = df[df['artist'].astype(str).str.strip().isin(active_artists)]
-        
-        return df
+            latest = artist_rows.iloc[0]
+
+            change_yesterday = 0
+            pct_yesterday = 0
+            if len(artist_rows) > 1:
+                previous = artist_rows.iloc[1]
+                change_yesterday = latest['monthly_listeners'] - previous['monthly_listeners']
+                pct_yesterday = round(change_yesterday / previous['monthly_listeners'] * 100, 1) if previous['monthly_listeners'] > 0 else 0
+
+            pct_past_2 = 0
+            if len(artist_rows) > 2:
+                two_days_ago = artist_rows.iloc[2]
+                pct_past_2 = round((latest['monthly_listeners'] - two_days_ago['monthly_listeners']) / two_days_ago['monthly_listeners'] * 100, 1) if two_days_ago['monthly_listeners'] > 0 else 0
+
+            pct_past_3 = 0
+            if len(artist_rows) > 3:
+                three_days_ago = artist_rows.iloc[3]
+                pct_past_3 = round((latest['monthly_listeners'] - three_days_ago['monthly_listeners']) / three_days_ago['monthly_listeners'] * 100, 1) if three_days_ago['monthly_listeners'] > 0 else 0
+
+            row = {
+                'artist': artist,
+                'date_of_latest_scan': latest['timestamp'].strftime('%Y-%m-%d %H:%M'),
+                'most_recent_listeners': latest['monthly_listeners'],
+                'change_since_yesterday': change_yesterday,
+                'pct_change_since_yesterday': pct_yesterday,
+                'pct_change_past_2_days': pct_past_2,
+                'pct_change_past_3_days': pct_past_3,
+            }
+            result.append(row)
+
+        return pd.DataFrame(result)
     except:
         return pd.DataFrame()
 
