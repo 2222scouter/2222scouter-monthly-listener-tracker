@@ -26,11 +26,15 @@ def load_data():
     try:
         df = pd.read_csv(url)
         df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
-        df = df.sort_values(['artist', 'timestamp'], ascending=[True, False])
-
+        df['date'] = df['timestamp'].dt.date
+        
+        # Keep latest scan per artist per day
+        df = df.sort_values(['artist', 'date', 'timestamp'], ascending=[True, True, False])
+        df = df.drop_duplicates(subset=['artist', 'date'], keep='first')
+        
         result = []
         for artist in df['artist'].unique():
-            artist_rows = df[df['artist'] == artist].sort_values('timestamp', ascending=False).head(5)
+            artist_rows = df[df['artist'] == artist].sort_values('date', ascending=False).head(4)
             if len(artist_rows) == 0:
                 continue
 
