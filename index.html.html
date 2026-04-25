@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spotify Listener Tracker</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #1DB954;
+    --green-dim: #17a349;
+    --black: #0a0a0a;
+    --card: #111111;
+    --card2: #181818;
+    --border: #222;
+    --text: #f0f0f0;
+    --muted: #888;
+    --up: #1DB954;
+    --down: #e05252;
+    --neutral: #888;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--black);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    min-height: 100vh;
+    padding: 0 0 60px;
+  }
+
+  /* HEADER */
+  header {
+    background: var(--black);
+    border-bottom: 1px solid var(--border);
+    padding: 28px 40px 22px;
+    display: flex;
+    align-items: flex-end;
+    gap: 18px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.2rem;
+    letter-spacing: 0.06em;
+    color: var(--green);
+    line-height: 1;
+  }
+
+  .logo span { color: var(--text); }
+
+  .subtitle {
+    font-size: 0.7rem;
+    color: var(--muted);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding-bottom: 4px;
+  }
+
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .last-updated {
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  .refresh-btn {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+  }
+  .refresh-btn:hover { border-color: var(--green); color: var(--green); }
+
+  /* MAIN */
+  main { padding: 36px 40px; max-width: 1400px; margin: 0 auto; }
+
+  /* LOADING */
+  #loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 40vh;
+    gap: 16px;
+    color: var(--muted);
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+  }
+
+  .spinner {
+    width: 36px; height: 36px;
+    border: 2px solid var(--border);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #error-msg {
+    display: none;
+    background: #1a0e0e;
+    border: 1px solid #3a1a1a;
+    color: #e05252;
+    padding: 20px 28px;
+    font-size: 0.8rem;
+    line-height: 1.7;
+    border-radius: 2px;
+    margin-bottom: 32px;
+  }
+
+  /* CONTROLS */
+  #controls {
+    display: none;
+    margin-bottom: 32px;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .control-label {
+    font-size: 0.65rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-right: 4px;
+  }
+
+  .tab-group {
+    display: flex;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .tab {
+    background: none;
+    border: none;
+    border-right: 1px solid var(--border);
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.08em;
+    padding: 7px 16px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.15s;
+  }
+  .tab:last-child { border-right: none; }
+  .tab:hover { color: var(--text); background: var(--card); }
+  .tab.active { background: var(--green); color: #000; font-weight: 500; }
+
+  .search-wrap {
+    margin-left: auto;
+    position: relative;
+  }
+  .search-wrap input {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    padding: 7px 14px 7px 32px;
+    outline: none;
+    width: 200px;
+    transition: border-color 0.2s;
+  }
+  .search-wrap input:focus { border-color: var(--green); }
+  .search-wrap input::placeholder { color: var(--muted); }
+  .search-icon {
+    position: absolute;
+    left: 10px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    font-size: 0.75rem;
+    pointer-events: none;
+  }
+
+  /* STATS ROW */
+  #stats-row {
+    display: none;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 20px 22px;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--green);
+  }
+  .stat-card.down::before { background: var(--down); }
+
+  .stat-label {
+    font-size: 0.6rem;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 10px;
+  }
+
+  .stat-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 2.1rem;
+    line-height: 1;
+    color: var(--text);
+    letter-spacing: 0.04em;
+  }
+
+  .stat-sub {
+    font-size: 0.65rem;
+    color: var(--muted);
+    margin-top: 6px;
+  }
+
+  .stat-badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    padding: 2px 8px;
+    border-radius: 1px;
+    margin-top: 6px;
+    font-weight: 500;
+  }
+  .badge-up { background: rgba(29,185,84,0.15); color: var(--green); }
+  .badge-down { background: rgba(224,82,82,0.15); color: var(--down); }
+
+  /* LEADERBOARD */
+  #leaderboard {
+    display: none;
+    margin-bottom: 36px;
+  }
+
+  .section-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.1rem;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* TABLE */
+  .table-wrap {
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+  }
+
+  thead th {
+    text-align: left;
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s;
+  }
+  thead th:hover { color: var(--text); }
+  thead th.sorted { color: var(--green); }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.12s;
+  }
+  tbody tr:hover { background: var(--card); }
+
+  tbody td {
+    padding: 13px 16px;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  .rank-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.1rem;
+    color: var(--muted);
+    width: 40px;
+  }
+  .rank-num.top3 { color: var(--green); }
+
+  .artist-name {
+    font-weight: 500;
+    font-size: 0.82rem;
+  }
+
+  .listeners-num {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 1.05rem;
+    letter-spacing: 0.04em;
+  }
+
+  .change-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    border-radius: 2px;
+  }
+  .pill-up { background: rgba(29,185,84,0.12); color: var(--green); }
+  .pill-down { background: rgba(224,82,82,0.12); color: var(--down); }
+  .pill-neutral { background: rgba(136,136,136,0.1); color: var(--neutral); }
+
+  .bar-cell { width: 160px; }
+  .mini-bar {
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .mini-bar-fill {
+    height: 100%;
+    background: var(--green);
+    border-radius: 2px;
+    transition: width 0.6s ease;
+  }
+
+  /* CHART SECTION */
+  #chart-section {
+    display: none;
+    margin-bottom: 36px;
+  }
+
+  .chart-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  select {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.7rem;
+    padding: 7px 12px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    min-width: 180px;
+  }
+  select:focus { border-color: var(--green); }
+
+  .chart-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 24px;
+    position: relative;
+    height: 340px;
+  }
+
+  /* FOOTER */
+  .data-footer {
+    margin-top: 12px;
+    font-size: 0.62rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  @media (max-width: 768px) {
+    header { padding: 20px; }
+    main { padding: 20px; }
+    #stats-row { grid-template-columns: repeat(2, 1fr); }
+    .bar-cell { display: none; }
+  }
+
+  @media (max-width: 480px) {
+    #stats-row { grid-template-columns: 1fr 1fr; }
+    .stat-value { font-size: 1.6rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">SCOUT<span>ER</span></div>
+    <div class="subtitle">Spotify Listener Tracker</div>
+  </div>
+  <div class="header-right">
+    <span class="last-updated" id="last-updated"></span>
+    <button class="refresh-btn" onclick="loadData()">↻ Refresh</button>
+  </div>
+</header>
+
+<main>
+  <div id="loading">
+    <div class="spinner"></div>
+    <span>FETCHING DATA...</span>
+  </div>
+
+  <div id="error-msg"></div>
+
+  <!-- STATS -->
+  <div id="stats-row">
+    <div class="stat-card">
+      <div class="stat-label">Artists Tracked</div>
+      <div class="stat-value" id="stat-artists">—</div>
+      <div class="stat-sub">unique artists</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Snapshots</div>
+      <div class="stat-value" id="stat-snapshots">—</div>
+      <div class="stat-sub">data points</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Biggest Gain</div>
+      <div class="stat-value" id="stat-gain-name" style="font-size:1.1rem;font-family:'DM Mono',monospace;margin-top:4px">—</div>
+      <div class="stat-badge badge-up" id="stat-gain-num"></div>
+    </div>
+    <div class="stat-card down">
+      <div class="stat-label">Biggest Drop</div>
+      <div class="stat-value" id="stat-drop-name" style="font-size:1.1rem;font-family:'DM Mono',monospace;margin-top:4px">—</div>
+      <div class="stat-badge badge-down" id="stat-drop-num"></div>
+    </div>
+  </div>
+
+  <!-- CONTROLS -->
+  <div id="controls">
+    <span class="control-label">Sort by</span>
+    <div class="tab-group">
+      <button class="tab active" data-sort="change_desc" onclick="setSort('change_desc', this)">Gained ↑</button>
+      <button class="tab" data-sort="change_asc" onclick="setSort('change_asc', this)">Lost ↑</button>
+      <button class="tab" data-sort="listeners_desc" onclick="setSort('listeners_desc', this)">Most Listeners</button>
+      <button class="tab" data-sort="name_asc" onclick="setSort('name_asc', this)">A–Z</button>
+    </div>
+    <div class="search-wrap">
+      <span class="search-icon">⌕</span>
+      <input type="text" id="search-box" placeholder="Search artist..." oninput="renderTable()">
+    </div>
+  </div>
+
+  <!-- LEADERBOARD -->
+  <div id="leaderboard">
+    <div class="section-title">Leaderboard</div>
+    <div class="table-wrap">
+      <table id="main-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Artist</th>
+            <th>Monthly Listeners</th>
+            <th>Change</th>
+            <th>% Change</th>
+            <th>First Seen</th>
+            <th>Latest</th>
+            <th class="bar-cell">Relative Size</th>
+          </tr>
+        </thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+    <div class="data-footer" id="row-count"></div>
+  </div>
+
+  <!-- CHART -->
+  <div id="chart-section">
+    <div class="section-title">Listener History</div>
+    <div class="chart-controls">
+      <span class="control-label">Artist</span>
+      <select id="chart-artist" onchange="renderChart()"></select>
+    </div>
+    <div class="chart-box">
+      <canvas id="myChart"></canvas>
+    </div>
+  </div>
+</main>
+
+<script>
+const CSV_URL = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv";
+// Fallback to the specific commit if main doesn't work
+const CSV_URL_FALLBACK = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/6060e03f148bb4938e90c3e782cddae342766f36/spotify_listeners_history.csv";
+
+let allData = [];
+let artistSummaries = [];
+let currentSort = 'change_desc';
+let chartInstance = null;
+
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\r/g,''));
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(c => c.trim().replace(/\r/g,''));
+    if (cols.length < headers.length) continue;
+    const row = {};
+    headers.forEach((h, idx) => row[h] = cols[idx]);
+    rows.push(row);
+  }
+  return rows;
+}
+
+function formatNum(n) {
+  if (n >= 1_000_000) return (n/1_000_000).toFixed(2) + 'M';
+  if (n >= 1_000) return (n/1_000).toFixed(1) + 'K';
+  return n.toString();
+}
+
+function formatDate(str) {
+  try {
+    const d = new Date(str);
+    if (isNaN(d)) return str;
+    return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'2-digit' });
+  } catch { return str; }
+}
+
+function buildSummaries(rows) {
+  const map = {};
+  for (const row of rows) {
+    const name = row.artist;
+    const ts = row.timestamp;
+    const count = parseInt(row.monthly_listeners || row.listeners || 0, 10);
+    if (!name || isNaN(count)) continue;
+    if (!map[name]) map[name] = [];
+    map[name].push({ ts, count });
+  }
+
+  const summaries = [];
+  for (const [name, entries] of Object.entries(map)) {
+    entries.sort((a,b) => new Date(a.ts) - new Date(b.ts));
+    const first = entries[0];
+    const last = entries[entries.length - 1];
+    const change = last.count - first.count;
+    const pct = first.count > 0 ? (change / first.count * 100) : 0;
+    summaries.push({ name, entries, first, last, change, pct });
+  }
+  return summaries;
+}
+
+function setSort(sort, el) {
+  currentSort = sort;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  renderTable();
+}
+
+function sortSummaries(list) {
+  return [...list].sort((a,b) => {
+    if (currentSort === 'change_desc') return b.change - a.change;
+    if (currentSort === 'change_asc') return a.change - b.change;
+    if (currentSort === 'listeners_desc') return b.last.count - a.last.count;
+    if (currentSort === 'name_asc') return a.name.localeCompare(b.name);
+    return 0;
+  });
+}
+
+function renderTable() {
+  const query = document.getElementById('search-box').value.toLowerCase();
+  const tbody = document.getElementById('table-body');
+
+  let filtered = artistSummaries.filter(a => a.name.toLowerCase().includes(query));
+  const sorted = sortSummaries(filtered);
+  const maxListeners = Math.max(...sorted.map(a => a.last.count));
+
+  tbody.innerHTML = sorted.map((a, i) => {
+    const rankClass = i < 3 ? 'top3' : '';
+    const changeSign = a.change > 0 ? '+' : '';
+    const pillClass = a.change > 0 ? 'pill-up' : a.change < 0 ? 'pill-down' : 'pill-neutral';
+    const arrow = a.change > 0 ? '▲' : a.change < 0 ? '▼' : '—';
+    const barW = maxListeners > 0 ? Math.round(a.last.count / maxListeners * 100) : 0;
+    const pctStr = (a.pct >= 0 ? '+' : '') + a.pct.toFixed(1) + '%';
+
+    return `<tr>
+      <td class="rank-num ${rankClass}">${i+1}</td>
+      <td class="artist-name">${a.name}</td>
+      <td class="listeners-num">${formatNum(a.last.count)}</td>
+      <td><span class="change-pill ${pillClass}">${arrow} ${changeSign}${formatNum(a.change)}</span></td>
+      <td style="color:${a.change>0?'var(--green)':a.change<0?'var(--down)':'var(--muted)'};font-size:0.75rem">${pctStr}</td>
+      <td style="color:var(--muted);font-size:0.72rem">${formatDate(a.first.ts)}</td>
+      <td style="color:var(--muted);font-size:0.72rem">${formatDate(a.last.ts)}</td>
+      <td class="bar-cell"><div class="mini-bar"><div class="mini-bar-fill" style="width:${barW}%"></div></div></td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('row-count').textContent = `Showing ${sorted.length} of ${artistSummaries.length} artists`;
+}
+
+function populateChartSelect() {
+  const sel = document.getElementById('chart-artist');
+  const sorted = [...artistSummaries].sort((a,b) => b.last.count - a.last.count);
+  sel.innerHTML = sorted.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+  renderChart();
+}
+
+function renderChart() {
+  const name = document.getElementById('chart-artist').value;
+  const artist = artistSummaries.find(a => a.name === name);
+  if (!artist) return;
+
+  const labels = artist.entries.map(e => formatDate(e.ts));
+  const data = artist.entries.map(e => e.count);
+
+  if (chartInstance) chartInstance.destroy();
+
+  const ctx = document.getElementById('myChart').getContext('2d');
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: name,
+        data,
+        borderColor: '#1DB954',
+        backgroundColor: 'rgba(29,185,84,0.07)',
+        pointBackgroundColor: '#1DB954',
+        pointRadius: 4,
+        pointHoverRadius: 6,
+        borderWidth: 2,
+        fill: true,
+        tension: 0.35
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#181818',
+          borderColor: '#333',
+          borderWidth: 1,
+          titleColor: '#888',
+          bodyColor: '#f0f0f0',
+          titleFont: { family: 'DM Mono', size: 11 },
+          bodyFont: { family: 'DM Mono', size: 12 },
+          callbacks: {
+            label: ctx => ' ' + ctx.parsed.y.toLocaleString() + ' listeners'
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#666', font: { family: 'DM Mono', size: 10 }, maxTicksLimit: 8 },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          border: { color: '#222' }
+        },
+        y: {
+          ticks: {
+            color: '#666',
+            font: { family: 'DM Mono', size: 10 },
+            callback: v => formatNum(v)
+          },
+          grid: { color: 'rgba(255,255,255,0.04)' },
+          border: { color: '#222' }
+        }
+      }
+    }
+  });
+}
+
+function showStats() {
+  const sorted_gain = [...artistSummaries].sort((a,b) => b.change - a.change);
+  const sorted_drop = [...artistSummaries].sort((a,b) => a.change - b.change);
+
+  document.getElementById('stat-artists').textContent = artistSummaries.length;
+  document.getElementById('stat-snapshots').textContent = allData.length;
+
+  if (sorted_gain.length > 0) {
+    const g = sorted_gain[0];
+    document.getElementById('stat-gain-name').textContent = g.name;
+    document.getElementById('stat-gain-num').textContent = '+' + formatNum(g.change) + ' listeners';
+  }
+  if (sorted_drop.length > 0) {
+    const d = sorted_drop[0];
+    document.getElementById('stat-drop-name').textContent = d.name;
+    document.getElementById('stat-drop-num').textContent = formatNum(d.change) + ' listeners';
+  }
+
+  document.getElementById('stats-row').style.display = 'grid';
+}
+
+async function loadData() {
+  document.getElementById('loading').style.display = 'flex';
+  document.getElementById('error-msg').style.display = 'none';
+  document.getElementById('stats-row').style.display = 'none';
+  document.getElementById('controls').style.display = 'none';
+  document.getElementById('leaderboard').style.display = 'none';
+  document.getElementById('chart-section').style.display = 'none';
+
+  let text = null;
+
+  const urls = [CSV_URL, CSV_URL_FALLBACK];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) { text = await res.text(); break; }
+    } catch(e) {}
+  }
+
+  document.getElementById('loading').style.display = 'none';
+
+  if (!text) {
+    const err = document.getElementById('error-msg');
+    err.style.display = 'block';
+    err.innerHTML = `
+      <strong>Couldn't load CSV data.</strong><br><br>
+      This is likely a CORS issue — browsers can't always fetch raw GitHub files directly.<br><br>
+      <strong>To fix:</strong> Make sure your repo is public, then try opening the raw file URL directly in your browser:<br>
+      <code style="color:#aaa;font-size:0.75rem">${CSV_URL}</code><br><br>
+      If you're hosting this locally, you can also paste your CSV content into the box below:<br><br>
+      <textarea id="csv-paste" placeholder="Paste CSV here..." style="width:100%;height:120px;background:#0a0a0a;border:1px solid #333;color:#f0f0f0;font-family:'DM Mono',monospace;font-size:0.72rem;padding:10px;outline:none"></textarea><br>
+      <button onclick="loadFromPaste()" style="margin-top:8px;background:var(--green);border:none;color:#000;font-family:'DM Mono',monospace;font-size:0.72rem;padding:8px 18px;cursor:pointer;letter-spacing:0.08em;text-transform:uppercase">Load from Paste</button>
+    `;
+    return;
+  }
+
+  process(text);
+}
+
+function loadFromPaste() {
+  const text = document.getElementById('csv-paste').value;
+  if (!text.trim()) return;
+  document.getElementById('error-msg').style.display = 'none';
+  process(text);
+}
+
+function process(text) {
+  allData = parseCSV(text);
+  artistSummaries = buildSummaries(allData);
+
+  if (artistSummaries.length === 0) {
+    const err = document.getElementById('error-msg');
+    err.style.display = 'block';
+    err.textContent = 'CSV loaded but no valid data found. Check that columns are: artist, timestamp, monthly_listeners';
+    return;
+  }
+
+  const now = new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+  document.getElementById('last-updated').textContent = 'Updated ' + now;
+
+  showStats();
+  document.getElementById('controls').style.display = 'flex';
+  document.getElementById('leaderboard').style.display = 'block';
+  renderTable();
+
+  document.getElementById('chart-section').style.display = 'block';
+  populateChartSelect();
+}
+
+loadData();
+</script>
+</body>
+</html>
