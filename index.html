@@ -517,9 +517,8 @@ main { padding: 20px; }
 </main>
 
 <script>
-const CSV_URL = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv";
-// Fallback to the specific commit if main doesn't work
-const CSV_URL_FALLBACK = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/6060e03f148bb4938e90c3e782cddae342766f36/spotify_listeners_history.csv";
+const CSV_URL = "./spotify_listeners_history.csv";
+const CSV_URL_FALLBACK = "https://raw.githubusercontent.com/2222scouter/2222scouter-monthly-listener-tracker/main/spotify_listeners_history.csv";
 
 let allData = [];
 let artistSummaries = [];
